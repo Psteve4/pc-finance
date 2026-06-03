@@ -17,7 +17,7 @@ const TIPS = {
   en: [
     "Set aside URSSAF charges immediately after each payment — never spend them.",
     "As an auto-entrepreneur, you can deduct nothing. Keep revenue low to stay under thresholds.",
-    "The 2024 threshold for BNC services is €77,700. Track your annual turnover carefully.",
+    "The 2025 threshold for BNC services is €77,700. Track your annual turnover carefully.",
     "Pay yourself a consistent salary each month, even when income varies.",
     "Reinvesting 10% back into your business (gear, software, training) is a smart habit.",
     "Build a 3-month revenue buffer before increasing your personal salary.",
@@ -25,7 +25,7 @@ const TIPS = {
   fr: [
     "Mettez de côté les cotisations URSSAF dès chaque encaissement — ne les dépensez jamais.",
     "En micro-entreprise, aucune charge n'est déductible. Suivez votre CA annuel.",
-    "Le seuil 2024 pour les services BNC est 77 700€. Surveillez votre CA cumulé.",
+    "Le seuil 2025 pour les services BNC est 77 700€. Surveillez votre CA cumulé.",
     "Versez-vous un salaire fixe chaque mois, même quand les revenus varient.",
     "Réinvestir 10% dans votre activité (matériel, logiciels, formations) est une bonne habitude.",
     "Constituez un fonds de 3 mois de revenus avant d'augmenter votre salaire.",
@@ -42,7 +42,7 @@ const T = {
     live_calc: 'Live Breakdown', gross: 'Gross', urssaf: 'URSSAF',
     net: 'Net to Self', company: 'Company reinvestment',
     to_wise: "→ Piers' Wise", salary_self: 'Salary to keep',
-    year_total: 'YTD Turnover', threshold: '2024 Threshold',
+    year_total: 'YTD Turnover', threshold: '2025 Threshold',
     tips: 'Business Tips', chart_title: 'Monthly Revenue',
     edit_splits: 'Edit Splits', piers_pct: "% to Piers' Wise",
     invest_pct: '% reinvest company'
@@ -56,7 +56,7 @@ const T = {
     live_calc: 'Décomposition live', gross: 'Brut', urssaf: 'URSSAF',
     net: 'Net personnel', company: 'Réinvesti entreprise',
     to_wise: "→ Wise Piers", salary_self: 'Salaire gardé',
-    year_total: 'CA annuel', threshold: 'Seuil 2024',
+    year_total: 'CA annuel', threshold: 'Seuil 2025',
     tips: 'Conseils pro', chart_title: 'Revenus mensuels',
     edit_splits: 'Modifier la répartition', piers_pct: "% vers Wise Piers",
     invest_pct: '% réinvesti entreprise'
@@ -141,7 +141,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
   const ytdUrssaf = income.reduce((s, r) => s + (r.amount_urssaf || 0), 0)
   const ytdNet = income.reduce((s, r) => s + (r.amount_after_urssaf || 0), 0)
   const ytdToPiers = income.reduce((s, r) => s + (r.amount_to_piers_wise || 0), 0)
-  const THRESHOLD_2024 = 77700
+  const THRESHOLD_2025 = 77700
 
   // Monthly chart data
   const monthlyData = Array.from({ length: 12 }, (_, i) => {
@@ -183,7 +183,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
         </div>
         <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
           <div style={{ fontSize: 13, color: 'var(--c-muted)' }}>
-            CA {selectedYear}: <span style={{ color: ytdGross > THRESHOLD_2024 ? 'var(--c-accent)' : '#4eff91', fontWeight: 700 }}>€{Math.round(ytdGross).toLocaleString()}</span>
+            CA {selectedYear}: <span style={{ color: ytdGross > THRESHOLD_2025 ? 'var(--c-accent)' : '#4eff91', fontWeight: 700 }}>€{Math.round(ytdGross).toLocaleString()}</span>
           </div>
           <div style={{ display: 'flex', gap: 4 }}>
             {['en', 'fr'].map(l => (
@@ -201,7 +201,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
             style={{ ...S.btn, background: 'transparent', border: '1px solid var(--c-border)', color: 'var(--c-muted)', padding: '8px 14px', fontSize: 12, whiteSpace: 'nowrap' }}
           >📂 {lang === 'en' ? 'Add past income' : 'Ajouter revenu passé'}</button>
           <select value={selectedYear} onChange={e => setSelectedYear(parseInt(e.target.value))} style={{ ...S.input, width: 100 }}>
-            {[2023, 2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
+            {[2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
           </select>
         </div>
       </div>
@@ -229,12 +229,12 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
                 </div>
                 <div style={{ fontSize: 14, color: 'rgba(240,240,240,0.75)', lineHeight: 1.7, marginBottom: 20, maxWidth: 680 }}>
                   {lang === 'en'
-                    ? 'Before you start, add your income history from 2023, 2024 and 2025 so you can see your full picture. Just use the + Add Income form below and change the date to the right month — it only takes a few minutes.'
-                    : 'Avant de commencer, ajoute tes revenus de 2023, 2024 et 2025 pour avoir une vue complète. Utilise simplement le formulaire + Ajouter un revenu ci-dessous en changeant la date — ça prend quelques minutes seulement.'}
+                    ? 'Add your income history from May 2025 onwards to see your full picture. Use the + Add Income form below and change the date to the right month.'
+                    : 'Ajoute tes revenus depuis mai 2025 pour avoir une vue complète. Utilise le formulaire + Ajouter un revenu ci-dessous en changeant la date.'}
                 </div>
                 <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                   <button
-                    onClick={() => scrollToAddIncome('2023-01-01')}
+                    onClick={() => scrollToAddIncome('2025-05-01')}
                     style={{ ...S.btn, background: 'var(--c-accent)', fontSize: 13 }}
                   >{lang === 'en' ? 'Start adding history →' : 'Commencer l\'historique →'}</button>
                   <button
@@ -295,7 +295,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
             {/* YTD stats */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
               {[
-                { label: t.year_total, val: ytdGross, color: '#fff', sub: `${Math.round(ytdGross / THRESHOLD_2024 * 100)}% of ${THRESHOLD_2024.toLocaleString()}€ threshold` },
+                { label: t.year_total, val: ytdGross, color: '#fff', sub: `${Math.round(ytdGross / THRESHOLD_2025 * 100)}% of ${THRESHOLD_2025.toLocaleString()}€ threshold` },
                 { label: 'URSSAF dû', val: ytdUrssaf, color: 'var(--c-accent)', sub: `${Math.round(rate * 100)}% rate` },
                 { label: t.net, val: ytdNet, color: '#4eff91', sub: 'Net income YTD' },
                 { label: t.to_wise, val: ytdToPiers, color: '#6ab4ff', sub: 'Transferred to savings' },
@@ -309,13 +309,13 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
             </div>
 
             {/* Threshold warning */}
-            {ytdGross > THRESHOLD_2024 * 0.8 && (
+            {ytdGross > THRESHOLD_2025 * 0.8 && (
               <div style={{ background: 'rgba(232,0,28,0.08)', border: '1px solid rgba(232,0,28,0.3)', borderRadius: 8, padding: 16, display: 'flex', gap: 12, alignItems: 'center' }}>
                 <div style={{ fontSize: 20 }}>⚠️</div>
                 <div style={{ fontSize: 13, color: 'rgba(232,0,28,0.9)' }}>
                   {lang === 'en'
-                    ? `You've reached ${Math.round(ytdGross / THRESHOLD_2024 * 100)}% of the 2024 BNC threshold (€77,700). Consider consulting an accountant.`
-                    : `Vous avez atteint ${Math.round(ytdGross / THRESHOLD_2024 * 100)}% du seuil BNC 2024 (77 700€). Consultez un comptable.`}
+                    ? `You've reached ${Math.round(ytdGross / THRESHOLD_2025 * 100)}% of the 2025 BNC threshold (€77,700). Consider consulting an accountant.`
+                    : `Vous avez atteint ${Math.round(ytdGross / THRESHOLD_2025 * 100)}% du seuil BNC 2025 (77 700€). Consultez un comptable.`}
                 </div>
               </div>
             )}
