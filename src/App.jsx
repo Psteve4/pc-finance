@@ -1,17 +1,17 @@
-import { useState, useEffect } from 'react'
+import { useState, useRef } from 'react'
 import LandingPage from './components/LandingPage.jsx'
 import MoneyTime from './components/moneytime/MoneyTime.jsx'
-import MoneyTimeIntro from './components/moneytime/MoneyTimeIntro.jsx'
 import CanelleVisuels from './components/canelle/CanelleVisuels.jsx'
 import { supabase } from './lib/supabase.js'
 
 const PASSWORD = 'canpie2024'
 
 export default function App() {
-  const [app, setApp] = useState(null) // null | 'moneytime' | 'canelle'
+  const [app, setApp] = useState(null)
   const [authed, setAuthed] = useState(() => sessionStorage.getItem('auth') === '1')
   const [lang, setLang] = useState('en')
-  const [mtIntroSeen, setMtIntroSeen] = useState(() => !!sessionStorage.getItem('mt_intro_done'))
+  const [mtVideoSeen, setMtVideoSeen] = useState(() => !!sessionStorage.getItem('mt_video_seen'))
+  const [cvVideoSeen, setCvVideoSeen] = useState(() => !!sessionStorage.getItem('cv_video_seen'))
 
   const handleAuth = (pw) => {
     if (pw === PASSWORD) {
@@ -30,10 +30,17 @@ export default function App() {
     return <LandingPage onSelect={setApp} lang={lang} setLang={setLang} />
   }
 
-  if (app === 'moneytime' && !mtIntroSeen) {
-    return <MoneyTimeIntro onDone={() => {
-      sessionStorage.setItem('mt_intro_done', '1')
-      setMtIntroSeen(true)
+  if (app === 'moneytime' && !mtVideoSeen) {
+    return <VideoIntro src="/money-time-intro.mp4" onDone={() => {
+      sessionStorage.setItem('mt_video_seen', '1')
+      setMtVideoSeen(true)
+    }} />
+  }
+
+  if (app === 'canelle' && !cvVideoSeen) {
+    return <VideoIntro src="/canelle-intro.mp4" onDone={() => {
+      sessionStorage.setItem('cv_video_seen', '1')
+      setCvVideoSeen(true)
     }} />
   }
 
@@ -42,6 +49,31 @@ export default function App() {
   }
 
   return <CanelleVisuels onBack={() => setApp(null)} lang={lang} setLang={setLang} />
+}
+
+function VideoIntro({ src, onDone }) {
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: '#000', zIndex: 1000 }}>
+      <video
+        src={src}
+        autoPlay
+        muted
+        playsInline
+        onEnded={onDone}
+        style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+      />
+      <button
+        onClick={onDone}
+        style={{
+          position: 'absolute', bottom: 24, right: 28, zIndex: 10,
+          background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.3)',
+          borderRadius: 4, padding: '8px 16px', color: 'rgba(255,255,255,0.85)',
+          fontFamily: 'Space Grotesk, sans-serif', fontSize: 13, fontWeight: 600,
+          cursor: 'pointer', letterSpacing: '0.05em'
+        }}
+      >SKIP ▶</button>
+    </div>
+  )
 }
 
 function LoginScreen({ onAuth, lang, setLang }) {

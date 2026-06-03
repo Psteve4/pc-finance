@@ -4,8 +4,8 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGri
 import { format, startOfMonth, endOfMonth, subMonths, parseISO, getYear } from 'date-fns'
 
 const RENT = 800
-const PIERS_WISE_PCT = 0.40 // % of net sent to Piers' Wise for savings/rent
-const INVEST_PCT = 0.10     // % reinvested in company
+const PIERS_WISE_PCT = 0.40
+const INVEST_PCT = 0.10
 
 const URSSAF_CATEGORIES = [
   { id: 'bnc_services', label: 'Services libéraux (BNC)', rate: 0.22 },
@@ -73,6 +73,76 @@ const T = {
   }
 }
 
+// Months from May 2025 to current month
+const ONBOARDING_MONTHS = (() => {
+  const months = []
+  let d = new Date(2025, 4, 1)
+  const current = new Date()
+  const stop = new Date(current.getFullYear(), current.getMonth(), 1)
+  while (d <= stop) {
+    months.push(format(d, 'yyyy-MM'))
+    d = new Date(d.getFullYear(), d.getMonth() + 1, 1)
+  }
+  return months
+})()
+
+const MONTH_LABELS_FR = {
+  '01': 'Janvier', '02': 'Février', '03': 'Mars', '04': 'Avril',
+  '05': 'Mai', '06': 'Juin', '07': 'Juillet', '08': 'Août',
+  '09': 'Septembre', '10': 'Octobre', '11': 'Novembre', '12': 'Décembre'
+}
+
+function monthLabel(ym) {
+  const [year, mon] = ym.split('-')
+  return `${MONTH_LABELS_FR[mon]} ${year}`
+}
+
+// SVG circular progress
+function CircleProgress({ pct, color = '#F49306', size = 48 }) {
+  const R = (size - 6) / 2
+  const C = 2 * Math.PI * R
+  const offset = C - (Math.min(100, Math.max(0, pct)) / 100) * C
+  return (
+    <svg width={size} height={size} style={{ transform: 'rotate(-90deg)', flexShrink: 0 }}>
+      <circle cx={size / 2} cy={size / 2} r={R} fill="none" stroke="#1a1a1a" strokeWidth="5" />
+      <circle cx={size / 2} cy={size / 2} r={R} fill="none" stroke={color} strokeWidth="5"
+        strokeDasharray={C} strokeDashoffset={offset} strokeLinecap="round"
+        style={{ transition: 'stroke-dashoffset 0.5s ease' }} />
+    </svg>
+  )
+}
+
+// Monthly goal ring
+function GoalCircle({ current, goal }) {
+  const pct = goal > 0 ? Math.min(100, (current / goal) * 100) : 0
+  const reached = current >= goal
+  const R = 90
+  const C = 2 * Math.PI * R
+  const offset = C - (pct / 100) * C
+  const color = reached ? '#A5BB1A' : '#F49306'
+  return (
+    <div style={{ position: 'relative', width: 220, height: 220, flexShrink: 0 }}>
+      <svg width="220" height="220" style={{ transform: 'rotate(-90deg)' }}>
+        <circle cx="110" cy="110" r={R} fill="none" stroke="#1a1a1a" strokeWidth="18" />
+        <circle cx="110" cy="110" r={R} fill="none" stroke={color} strokeWidth="18"
+          strokeDasharray={C} strokeDashoffset={offset} strokeLinecap="round"
+          style={{ transition: 'stroke-dashoffset 0.7s ease' }} />
+      </svg>
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
+        {reached ? (
+          <div style={{ fontSize: 14, color: '#A5BB1A', fontWeight: 700, lineHeight: 1.4 }}>🎉<br/>Objectif<br/>atteint!</div>
+        ) : (
+          <>
+            <div style={{ fontSize: 30, fontWeight: 700, color, lineHeight: 1 }}>{Math.round(pct)}%</div>
+            <div style={{ fontSize: 14, color: '#f0f0f0', marginTop: 4 }}>€{Math.round(current).toLocaleString()}</div>
+            <div style={{ fontSize: 11, color: '#666', marginTop: 2 }}>/ €{goal.toLocaleString()}</div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function CanelleVisuels({ onBack, lang, setLang }) {
   const t = T[lang]
   const [tab, setTab] = useState('dashboard')
@@ -83,7 +153,6 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
   const [investPct, setInvestPct] = useState(INVEST_PCT * 100)
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
   const [tipIdx] = useState(() => new Date().getDate() % TIPS.en.length)
-  const [showWelcomeBanner, setShowWelcomeBanner] = useState(false)
   const addIncomeRef = useRef(null)
   const [wishlist, setWishlist] = useState([])
   const [newWishItem, setNewWishItem] = useState({ name: '', price: '', url: '', category: 'gear', priority: 'soon' })
@@ -92,15 +161,24 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
   const [wishError, setWishError] = useState(null)
   const [wishLoading, setWishLoading] = useState(false)
 
-  // New income form
+  // Onboarding
+  const [onboardingMode, setOnboardingMode] = useState(false)
+  const [onboardingRows, setOnboardingRows] = useState({})
+  const [onboardingSaving, setOnboardingSaving] = useState(false)
+
+  // Monthly goal
+  const [monthlyGoal, setMonthlyGoal] = useState(() => parseInt(localStorage.getItem('cv_monthly_goal') || '2500'))
+  const [editingGoal, setEditingGoal] = useState(false)
+  const [goalInput, setGoalInput] = useState('')
+
   const [form, setForm] = useState({ client: '', amount: '', date: format(new Date(), 'yyyy-MM-dd'), cat: 'bnc_services', desc: '' })
 
   useEffect(() => { loadIncome() }, [selectedYear])
 
   useEffect(() => {
-    if (localStorage.getItem('cv_history_dismissed')) return
+    if (localStorage.getItem('cv_onboarding_done')) return
     supabase.from('cv_income').select('id', { count: 'exact', head: true })
-      .then(({ count }) => { if ((count || 0) === 0) setShowWelcomeBanner(true) })
+      .then(({ count }) => { if ((count || 0) === 0) setOnboardingMode(true) })
   }, [])
 
   useEffect(() => { loadWishlist() }, [])
@@ -120,14 +198,38 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
     setTimeout(() => addIncomeRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
   }
 
-  function dismissWelcomeBanner() {
-    localStorage.setItem('cv_history_dismissed', '1')
-    setShowWelcomeBanner(false)
-  }
-
   async function loadWishlist() {
     const { data } = await supabase.from('cv_wishlist').select('*').order('created_at')
     setWishlist(data || [])
+  }
+
+  async function saveOnboarding() {
+    setOnboardingSaving(true)
+    const rows = Object.entries(onboardingRows).filter(([, v]) => v && v.amount && parseFloat(v.amount) > 0)
+    for (const [month, { client, amount, cat }] of rows) {
+      const gross = parseFloat(amount)
+      const rate = URSSAF_CATEGORIES.find(c => c.id === (cat || 'bnc_services'))?.rate || 0.22
+      const urssaf = gross * rate
+      const net = gross - urssaf
+      const toPiers = net * (piersPct / 100)
+      const company = net * (investPct / 100)
+      const salary = net - toPiers - company
+      await supabase.from('cv_income').insert({
+        client: client || '', amount_gross: gross, amount_urssaf: urssaf,
+        amount_after_urssaf: net, amount_to_piers_wise: toPiers,
+        amount_company: company, amount_salary: salary,
+        date: `${month}-01`, category: cat || 'bnc_services', description: 'Historique'
+      })
+    }
+    localStorage.setItem('cv_onboarding_done', '1')
+    setOnboardingMode(false)
+    setOnboardingSaving(false)
+    loadIncome()
+  }
+
+  function skipOnboarding() {
+    localStorage.setItem('cv_onboarding_done', '1')
+    setOnboardingMode(false)
   }
 
   async function addWishItem() {
@@ -143,11 +245,8 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
       funded: 0,
       purchased: false,
     }
-    console.log('[cv_wishlist] inserting →', payload)
     const { data, error } = await supabase.from('cv_wishlist').insert(payload).select().single()
-    console.log('[cv_wishlist] result →', { data, error })
     if (error) {
-      console.error('[cv_wishlist] insert failed:', error)
       setWishError(`${error.message} (code: ${error.code})`)
       setWishLoading(false)
       return
@@ -187,7 +286,6 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
     if (data) setIncome(prev => [data, ...prev])
     setForm({ client: '', amount: '', date: format(new Date(), 'yyyy-MM-dd'), cat: 'bnc_services', desc: '' })
 
-    // Auto-fund wishlist from income allocation
     if (wishlistPct > 0) {
       const alloc = net * (wishlistPct / 100)
       const PO = { dream: 0, soon: 1, someday: 2 }
@@ -217,7 +315,12 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
   const ytdToPiers = income.reduce((s, r) => s + (r.amount_to_piers_wise || 0), 0)
   const THRESHOLD_2025 = 77700
 
-  // Monthly chart data
+  // Current month income for goal circle
+  const currentMonthStr = format(new Date(), 'yyyy-MM')
+  const currentMonthGross = income
+    .filter(r => r.date?.startsWith(currentMonthStr))
+    .reduce((s, r) => s + (r.amount_gross || 0), 0)
+
   const monthlyData = Array.from({ length: 12 }, (_, i) => {
     const m = String(i + 1).padStart(2, '0')
     const monthIncome = income.filter(r => r.date?.startsWith(`${selectedYear}-${m}`))
@@ -226,7 +329,6 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
     return { month: m, gross: Math.round(gross), net: Math.round(net) }
   })
 
-  // URSSAF forecast
   const monthsWithData = new Set(income.map(r => r.date?.slice(0, 7)).filter(Boolean)).size
   const avgMonthlyGross = monthsWithData > 0 ? ytdGross / monthsWithData : 0
   const currentCalMonth = new Date().getMonth() + 1
@@ -238,7 +340,6 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
   const stillToSetUrssaf = Math.max(0, estimatedTotalUrssaf - ytdUrssaf)
   const forecastThresholdPct = projectedAnnualGross > 0 ? Math.round(projectedAnnualGross / THRESHOLD_2025 * 100) : 0
 
-  // Wishlist derived
   const PRIORITY_ORDER = { dream: 0, soon: 1, someday: 2 }
   const activeWish = wishlist.filter(w => !w.purchased)
   const wishTotal = activeWish.reduce((s, w) => s + w.price, 0)
@@ -265,7 +366,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
     card: { background: 'var(--c-surface)', border: '1px solid var(--c-border)', borderRadius: 10, padding: 24 },
     label: { fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--c-muted)', marginBottom: 6 },
     input: { background: 'var(--c-surface2)', border: '1px solid var(--c-border)', borderRadius: 6, padding: '10px 14px', color: 'var(--c-text)', fontSize: 13, width: '100%', fontFamily: 'var(--font-modern)' },
-    btn: { background: 'var(--c-accent)', border: 'none', borderRadius: 6, padding: '10px 20px', color: '#1a1a1a', fontSize: 13, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.05em', fontFamily: 'var(--font-modern)', transition: 'all 0.15s' },
+    btn: { background: 'var(--c-accent)', border: 'none', borderRadius: 6, padding: '10px 20px', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.05em', fontFamily: 'var(--font-modern)', transition: 'all 0.15s' },
     navBtn: (active) => ({
       padding: '14px 22px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
       background: 'transparent', color: active ? '#fff' : 'var(--c-muted)',
@@ -275,6 +376,85 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
     }),
   }
 
+  // ── ONBOARDING SCREEN ─────────────────────────────────────────────────
+  if (onboardingMode) {
+    return (
+      <div className="canelle" style={{ ...S.container, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '40px 24px' }}>
+        <div style={{ width: '100%', maxWidth: 720 }}>
+          <div style={{ textAlign: 'center', marginBottom: 40 }}>
+            <div style={{ fontSize: 32, fontWeight: 700, color: '#f0f0f0', marginBottom: 10 }}>
+              👋 Bienvenue Canelle! Let's set up your history
+            </div>
+            <div style={{ fontSize: 15, color: 'var(--c-muted)', lineHeight: 1.7, maxWidth: 560, margin: '0 auto' }}>
+              Add your income from May 2025 to today in one go. You only do this once.
+              Months with no income can be left blank.
+            </div>
+          </div>
+
+          <div style={{ ...S.card, borderColor: 'rgba(244,147,6,0.3)', marginBottom: 24 }}>
+            {/* Column headers */}
+            <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr 130px 1fr', gap: 10, marginBottom: 12 }}>
+              {['Month', 'Client', 'Amount (€)', 'Category'].map(h => (
+                <div key={h} style={{ ...S.label, marginBottom: 0 }}>{h}</div>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 480, overflowY: 'auto', paddingRight: 4 }}>
+              {ONBOARDING_MONTHS.map(ym => {
+                const row = onboardingRows[ym] || {}
+                const setRow = (patch) => setOnboardingRows(prev => ({ ...prev, [ym]: { ...prev[ym], ...patch } }))
+                return (
+                  <div key={ym} style={{ display: 'grid', gridTemplateColumns: '130px 1fr 130px 1fr', gap: 10, alignItems: 'center' }}>
+                    <div style={{ fontSize: 13, color: 'var(--c-muted)', fontWeight: 500 }}>{monthLabel(ym)}</div>
+                    <input
+                      style={{ ...S.input, padding: '8px 10px', fontSize: 12 }}
+                      placeholder="Client"
+                      value={row.client || ''}
+                      onChange={e => setRow({ client: e.target.value })}
+                    />
+                    <input
+                      style={{ ...S.input, padding: '8px 10px', fontSize: 12 }}
+                      type="number"
+                      placeholder="0"
+                      value={row.amount || ''}
+                      onChange={e => setRow({ amount: e.target.value })}
+                    />
+                    <select
+                      style={{ ...S.input, padding: '8px 10px', fontSize: 12 }}
+                      value={row.cat || 'bnc_services'}
+                      onChange={e => setRow({ cat: e.target.value })}
+                    >
+                      {URSSAF_CATEGORIES.map(c => (
+                        <option key={c.id} value={c.id}>{c.label} ({(c.rate * 100).toFixed(1)}%)</option>
+                      ))}
+                    </select>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+            <button
+              style={{ ...S.btn, fontSize: 16, padding: '16px 40px', borderRadius: 10, opacity: onboardingSaving ? 0.6 : 1 }}
+              onClick={saveOnboarding}
+              disabled={onboardingSaving}
+            >
+              {onboardingSaving ? 'Saving…' : '✅ Save all history & start'}
+            </button>
+            <button
+              style={{ background: 'none', border: 'none', color: 'var(--c-muted)', fontSize: 13, cursor: 'pointer', textDecoration: 'underline', fontFamily: 'var(--font-modern)' }}
+              onClick={skipOnboarding}
+            >
+              Skip — I'll add history later
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── MAIN APP ──────────────────────────────────────────────────────────
   return (
     <div className="canelle" style={S.container}>
       {/* Header */}
@@ -284,7 +464,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
           <div>
             <div style={{ lineHeight: 1 }}>
               <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 26, fontWeight: 700, color: '#f0f0f0', letterSpacing: '-0.01em' }}>Canelle</span>
-              <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 26, fontWeight: 700, color: '#f5c000', letterSpacing: '-0.01em' }}>.visuels</span>
+              <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 26, fontWeight: 700, color: '#F49306', letterSpacing: '-0.01em' }}>.visuels</span>
             </div>
             <div style={{ fontSize: 11, color: 'var(--c-muted)', letterSpacing: '0.15em' }}>BUSINESS TRACKER</div>
           </div>
@@ -298,7 +478,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
               <button key={l} onClick={() => setLang(l)} style={{
                 padding: '6px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600,
                 background: lang === l ? 'var(--c-accent)' : 'transparent',
-                color: lang === l ? '#1a1a1a' : 'var(--c-muted)',
+                color: lang === l ? '#fff' : 'var(--c-muted)',
                 border: '1px solid var(--c-border)', textTransform: 'uppercase',
                 cursor: 'pointer', fontFamily: 'var(--font-modern)'
               }}>{l}</button>
@@ -329,33 +509,61 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
         {tab === 'dashboard' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }} className="page-enter">
 
-            {/* Welcome / history onboarding banner */}
-            {showWelcomeBanner && (
-              <div style={{ background: 'linear-gradient(135deg, rgba(245,192,0,0.08) 0%, rgba(201,168,76,0.06) 100%)', border: '1px solid rgba(245,192,0,0.3)', borderRadius: 10, padding: '24px 28px' }}>
-                <div style={{ fontSize: 18, fontWeight: 700, color: '#f0f0f0', marginBottom: 10, lineHeight: 1.4 }}>
-                  👋 Bienvenue Canelle !
-                </div>
-                <div style={{ fontSize: 14, color: 'rgba(240,240,240,0.75)', lineHeight: 1.7, marginBottom: 20, maxWidth: 680 }}>
-                  {lang === 'en'
-                    ? 'Add your income history from May 2025 onwards to see your full picture. Use the + Add Income form below and change the date to the right month.'
-                    : 'Ajoute tes revenus depuis mai 2025 pour avoir une vue complète. Utilise le formulaire + Ajouter un revenu ci-dessous en changeant la date.'}
-                </div>
-                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                  <button
-                    onClick={() => scrollToAddIncome('2025-05-01')}
-                    style={{ ...S.btn, background: 'var(--c-accent)', fontSize: 13 }}
-                  >{lang === 'en' ? 'Start adding history →' : 'Commencer l\'historique →'}</button>
-                  <button
-                    onClick={dismissWelcomeBanner}
-                    style={{ ...S.btn, background: 'transparent', border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(240,240,240,0.5)', fontSize: 13, fontWeight: 400 }}
-                  >{lang === 'en' ? "I'll do it later" : 'Je le ferai plus tard'}</button>
+            {/* Monthly Goal Circle */}
+            <div style={{ ...S.card, borderColor: 'rgba(244,147,6,0.25)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
+                <GoalCircle current={currentMonthGross} goal={monthlyGoal} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#f0f0f0' }}>
+                      {lang === 'en' ? 'Monthly Income Goal' : 'Objectif mensuel'}
+                    </div>
+                    {!editingGoal ? (
+                      <button
+                        onClick={() => { setGoalInput(String(monthlyGoal)); setEditingGoal(true) }}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'var(--c-muted)' }}
+                        title={lang === 'en' ? 'Edit goal' : 'Modifier l\'objectif'}
+                      >✏️</button>
+                    ) : (
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <input
+                          style={{ ...S.input, width: 100, padding: '4px 8px', fontSize: 13 }}
+                          type="number"
+                          value={goalInput}
+                          onChange={e => setGoalInput(e.target.value)}
+                          autoFocus
+                        />
+                        <button style={{ ...S.btn, padding: '4px 10px', fontSize: 12 }} onClick={() => {
+                          const v = parseInt(goalInput) || 2500
+                          setMonthlyGoal(v)
+                          localStorage.setItem('cv_monthly_goal', String(v))
+                          setEditingGoal(false)
+                        }}>✓</button>
+                        <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--c-muted)', fontSize: 14 }} onClick={() => setEditingGoal(false)}>✕</button>
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 28, fontWeight: 700, color: '#F49306', marginBottom: 4 }}>
+                    €{Math.round(currentMonthGross).toLocaleString()}
+                    <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--c-muted)', marginLeft: 8 }}>/ €{monthlyGoal.toLocaleString()}</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--c-muted)', lineHeight: 1.6 }}>
+                    {lang === 'en'
+                      ? `${format(new Date(), 'MMMM yyyy')} · Goal: €${monthlyGoal.toLocaleString()} gross`
+                      : `${monthLabel(format(new Date(), 'yyyy-MM'))} · Objectif : €${monthlyGoal.toLocaleString()} brut`}
+                  </div>
+                  {currentMonthGross >= monthlyGoal && (
+                    <div style={{ marginTop: 10, fontSize: 13, color: '#A5BB1A', fontWeight: 600 }}>
+                      🎉 {lang === 'en' ? 'Monthly goal reached! Great work.' : 'Objectif mensuel atteint ! Bravo.'}
+                    </div>
+                  )}
                 </div>
               </div>
-            )}
+            </div>
 
             {/* Add income */}
-            <div ref={addIncomeRef} style={{ ...S.card, borderColor: 'rgba(245,192,0,0.3)' }}>
-              <div style={{ ...S.label, color: 'rgba(245,192,0,0.8)', marginBottom: 16 }}>+ {t.add_income}</div>
+            <div ref={addIncomeRef} style={{ ...S.card, borderColor: 'rgba(244,147,6,0.3)' }}>
+              <div style={{ ...S.label, color: 'rgba(244,147,6,0.9)', marginBottom: 16 }}>+ {t.add_income}</div>
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.5fr 1fr 1.5fr 2fr', gap: 12, marginBottom: 12 }}>
                 <div>
                   <div style={S.label}>{t.client}</div>
@@ -381,17 +589,14 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
                 </div>
               </div>
 
-              {/* Live breakdown — flow diagram */}
               {previewGross > 0 && (
                 <div style={{ background: 'var(--c-surface2)', borderRadius: 8, padding: '16px 20px' }}>
-                  {/* Step 1: Receipt */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                     <div style={{ fontSize: 12, color: 'var(--c-muted)', letterSpacing: '0.06em' }}>
                       🏦 {lang === 'en' ? 'MONOBANQUE CANELLE — receives payment' : 'MONOBANQUE CANELLE — reçoit le paiement'}
                     </div>
                     <div style={{ fontSize: 20, fontWeight: 700, color: '#f0f0f0' }}>€{Math.round(previewGross).toLocaleString()}</div>
                   </div>
-                  {/* Arrow + URSSAF deduction */}
                   <div style={{ paddingLeft: 16, marginBottom: 8 }}>
                     <div style={{ fontSize: 12, color: 'var(--c-muted)', marginBottom: 3 }}>
                       ↓ {lang === 'en' ? `minus URSSAF (${Math.round(rate * 100)}%)` : `moins URSSAF (${Math.round(rate * 100)}%)`}
@@ -400,34 +605,20 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
                       −€{Math.round(previewUrssaf).toLocaleString()}
                     </div>
                   </div>
-                  {/* Net income bar */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'rgba(78,255,145,0.08)', border: '1px solid rgba(78,255,145,0.2)', borderRadius: 6, marginBottom: 10 }}>
                     <div style={{ fontSize: 12, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#4eff91', fontWeight: 700 }}>
                       {lang === 'en' ? 'Net income' : 'Net personnel'}
                     </div>
                     <div style={{ fontSize: 22, fontWeight: 700, color: '#4eff91' }}>€{Math.round(previewNet).toLocaleString()}</div>
                   </div>
-                  {/* 3-way split */}
                   <div style={{ paddingLeft: 16 }}>
                     <div style={{ fontSize: 12, color: 'var(--c-muted)', marginBottom: 10 }}>
                       ↓ {lang === 'en' ? 'split into 3:' : 'réparti en 3 :'}
                     </div>
                     {[
-                      {
-                        label: lang === 'en' ? 'Wise Canelle (your salary)' : 'Wise Canelle (votre salaire)',
-                        pct: Math.round(100 - piersPct - investPct),
-                        val: previewSalary, color: '#4eff91',
-                      },
-                      {
-                        label: lang === 'en' ? 'Wise Piers — joint savings & rent' : 'Wise Piers — épargne commune & loyer',
-                        pct: Math.round(piersPct),
-                        val: previewToPiers, color: '#6ab4ff',
-                      },
-                      {
-                        label: lang === 'en' ? 'Company reinvestment' : 'Réinvesti entreprise',
-                        pct: Math.round(investPct),
-                        val: previewCompany, color: '#ffcc44',
-                      },
+                      { label: lang === 'en' ? 'Wise Canelle (your salary)' : 'Wise Canelle (votre salaire)', pct: Math.round(100 - piersPct - investPct), val: previewSalary, color: '#4eff91' },
+                      { label: lang === 'en' ? 'Wise Piers — joint savings & rent' : 'Wise Piers — épargne commune & loyer', pct: Math.round(piersPct), val: previewToPiers, color: '#6DB8BE' },
+                      { label: lang === 'en' ? 'Company reinvestment' : 'Réinvesti entreprise', pct: Math.round(investPct), val: previewCompany, color: '#ffcc44' },
                     ].map(({ label, pct, val, color }) => (
                       <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
                         <div style={{ color, fontSize: 14, flexShrink: 0 }}>→</div>
@@ -447,7 +638,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
                 { label: t.year_total, val: ytdGross, color: '#fff', sub: `${Math.round(ytdGross / THRESHOLD_2025 * 100)}% of ${THRESHOLD_2025.toLocaleString()}€ threshold` },
                 { label: 'URSSAF dû', val: ytdUrssaf, color: 'var(--c-accent)', sub: `${Math.round(rate * 100)}% rate` },
                 { label: t.net, val: ytdNet, color: '#4eff91', sub: 'Net income YTD' },
-                { label: t.to_wise, val: ytdToPiers, color: '#6ab4ff', sub: 'Transferred to savings' },
+                { label: t.to_wise, val: ytdToPiers, color: '#6DB8BE', sub: 'Transferred to savings' },
               ].map(({ label, val, color, sub }) => (
                 <div key={label} style={S.card}>
                   <div style={S.label}>{label}</div>
@@ -499,7 +690,6 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
               </div>
             )}
 
-            {/* Threshold warning */}
             {ytdGross > THRESHOLD_2025 * 0.8 && (
               <div style={{ background: 'rgba(232,0,28,0.08)', border: '1px solid rgba(232,0,28,0.3)', borderRadius: 8, padding: 16, display: 'flex', gap: 12, alignItems: 'center' }}>
                 <div style={{ fontSize: 20 }}>⚠️</div>
@@ -520,14 +710,14 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
                   <XAxis dataKey="month" tick={{ fill: '#666', fontSize: 11 }} axisLine={false} tickLine={false}/>
                   <YAxis tick={{ fill: '#666', fontSize: 10 }} axisLine={false} tickLine={false}/>
                   <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, fontSize: 12 }} labelStyle={{ color: '#999' }}/>
-                  <Bar dataKey="gross" fill="rgba(245,192,0,0.7)" radius={[3,3,0,0]} name={t.gross}/>
+                  <Bar dataKey="gross" fill="rgba(244,147,6,0.75)" radius={[3,3,0,0]} name={t.gross}/>
                   <Bar dataKey="net" fill="#4eff91" radius={[3,3,0,0]} name={t.net}/>
                 </BarChart>
               </ResponsiveContainer>
             </div>
 
             {/* Tips */}
-            <div style={{ ...S.card, borderColor: 'rgba(201,168,76,0.2)', background: 'rgba(201,168,76,0.04)' }}>
+            <div style={{ ...S.card, borderColor: 'rgba(244,147,6,0.2)', background: 'rgba(244,147,6,0.04)' }}>
               <div style={{ ...S.label, color: 'var(--c-gold)' }}>💼 {t.tips}</div>
               <div style={{ fontSize: 14, color: 'rgba(240,240,240,0.8)', marginTop: 10, lineHeight: 1.7 }}>
                 {TIPS[lang][tipIdx]}
@@ -539,9 +729,8 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
         {/* ── HISTORY ── */}
         {tab === 'history' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }} className="page-enter">
-            {/* Add past history hint */}
-            <div style={{ ...S.card, borderColor: 'rgba(106,180,255,0.2)', background: 'rgba(106,180,255,0.03)' }}>
-              <div style={{ fontSize: 13, color: 'rgba(106,180,255,0.7)', lineHeight: 1.6 }}>
+            <div style={{ ...S.card, borderColor: 'rgba(109,184,190,0.2)', background: 'rgba(109,184,190,0.03)' }}>
+              <div style={{ fontSize: 13, color: 'rgba(109,184,190,0.7)', lineHeight: 1.6 }}>
                 {lang === 'en'
                   ? '📂 Use the + Add Income form on the Dashboard to add past invoices. Just change the date to the correct month.'
                   : '📂 Utilisez le formulaire + Ajouter sur le tableau de bord pour entrer les factures passées. Changez simplement la date.'}
@@ -575,7 +764,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
                         <td style={{ padding: '12px', color: '#fff' }}>€{Math.round(r.amount_gross)}</td>
                         <td style={{ padding: '12px', color: 'var(--c-accent)' }}>-€{Math.round(r.amount_urssaf)}</td>
                         <td style={{ padding: '12px', color: '#4eff91', fontWeight: 600 }}>€{Math.round(r.amount_after_urssaf)}</td>
-                        <td style={{ padding: '12px', color: '#6ab4ff' }}>€{Math.round(r.amount_to_piers_wise || 0)}</td>
+                        <td style={{ padding: '12px', color: '#6DB8BE' }}>€{Math.round(r.amount_to_piers_wise || 0)}</td>
                         <td style={{ padding: '12px' }}>
                           <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 4, background: 'var(--c-surface2)', color: 'var(--c-muted)' }}>
                             {URSSAF_CATEGORIES.find(c => c.id === r.category)?.label || r.category}
@@ -590,7 +779,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
                       <td style={{ padding: '12px', color: '#fff', fontWeight: 700 }}>€{Math.round(ytdGross).toLocaleString()}</td>
                       <td style={{ padding: '12px', color: 'var(--c-accent)', fontWeight: 700 }}>-€{Math.round(ytdUrssaf).toLocaleString()}</td>
                       <td style={{ padding: '12px', color: '#4eff91', fontWeight: 700 }}>€{Math.round(ytdNet).toLocaleString()}</td>
-                      <td style={{ padding: '12px', color: '#6ab4ff', fontWeight: 700 }}>€{Math.round(ytdToPiers).toLocaleString()}</td>
+                      <td style={{ padding: '12px', color: '#6DB8BE', fontWeight: 700 }}>€{Math.round(ytdToPiers).toLocaleString()}</td>
                       <td/>
                     </tr>
                   </tfoot>
@@ -606,7 +795,6 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
             <div style={S.card}>
               <div style={{ ...S.label, marginBottom: 20 }}>{t.edit_splits}</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-                {/* URSSAF cat */}
                 <div>
                   <div style={S.label}>{t.urssaf_rate}</div>
                   {URSSAF_CATEGORIES.map(c => (
@@ -618,13 +806,12 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
                   ))}
                 </div>
 
-                {/* Piers % */}
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                     <div style={S.label}>{t.piers_pct}</div>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: '#6ab4ff' }}>{Math.round(piersPct)}%</div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: '#6DB8BE' }}>{Math.round(piersPct)}%</div>
                   </div>
-                  <input type="range" min="10" max="60" value={piersPct} onChange={e => setPiersPct(parseInt(e.target.value))} style={{ width: '100%', accentColor: '#6ab4ff' }}/>
+                  <input type="range" min="10" max="60" value={piersPct} onChange={e => setPiersPct(parseInt(e.target.value))} style={{ width: '100%', accentColor: '#6DB8BE' }}/>
                   <div style={{ fontSize: 12, color: 'var(--c-muted)', marginTop: 6 }}>
                     {lang === 'en'
                       ? `On €1,000 net: €${Math.round(10 * piersPct)} → Piers' Wise (for rent + savings)`
@@ -632,7 +819,6 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
                   </div>
                 </div>
 
-                {/* Company % */}
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                     <div style={S.label}>{t.invest_pct}</div>
@@ -641,11 +827,10 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
                   <input type="range" min="0" max="30" value={investPct} onChange={e => setInvestPct(parseInt(e.target.value))} style={{ width: '100%', accentColor: '#ffcc44' }}/>
                 </div>
 
-                {/* Summary of splits */}
                 <div style={{ background: 'var(--c-surface2)', borderRadius: 8, padding: 16 }}>
                   <div style={{ ...S.label, marginBottom: 12 }}>{lang === 'en' ? 'For every €1,000 net:' : 'Pour chaque 1 000€ net :'}</div>
                   {[
-                    { label: t.to_wise, val: Math.round(1000 * piersPct / 100), color: '#6ab4ff' },
+                    { label: t.to_wise, val: Math.round(1000 * piersPct / 100), color: '#6DB8BE' },
                     { label: t.company, val: Math.round(1000 * investPct / 100), color: '#ffcc44' },
                     { label: lang === 'en' ? 'Your salary' : 'Votre salaire', val: Math.round(1000 * (1 - piersPct / 100 - investPct / 100)), color: '#4eff91' },
                   ].map(({ label, val, color }) => (
@@ -656,18 +841,12 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
                   ))}
                 </div>
 
-                {/* Wise Piers note */}
-                <div style={{ background: 'rgba(245,192,0,0.05)', borderRadius: 8, padding: 16, border: '1px solid rgba(245,192,0,0.2)' }}>
-                  <div style={{ ...S.label, color: 'rgba(245,192,0,0.7)' }}>🏠 {lang === 'en' ? '→ Wise Piers (joint savings & rent) — how it works' : '→ Wise Piers (épargne commune & loyer) — fonctionnement'}</div>
+                <div style={{ background: 'rgba(244,147,6,0.05)', borderRadius: 8, padding: 16, border: '1px solid rgba(244,147,6,0.2)' }}>
+                  <div style={{ ...S.label, color: 'rgba(244,147,6,0.8)' }}>🏠 {lang === 'en' ? '→ Wise Piers (joint savings & rent) — how it works' : '→ Wise Piers (épargne commune & loyer) — fonctionnement'}</div>
                   <div style={{ fontSize: 13, color: 'rgba(240,240,240,0.7)', marginTop: 8, lineHeight: 1.8 }}>
                     {lang === 'en'
                       ? `Your ${Math.round(piersPct)}% transfer (€${Math.round(10 * piersPct)} per €1,000 net) goes to Piers' Wise. It covers the €${RENT} shared rent first, then contributes to joint savings.`
                       : `Votre virement de ${Math.round(piersPct)}% (${Math.round(10 * piersPct)}€ par 1 000€ net) va sur le Wise de Piers. Il couvre d'abord le loyer commun de ${RENT}€, puis alimente l'épargne commune.`}
-                  </div>
-                  <div style={{ fontSize: 12, color: 'rgba(245,192,0,0.6)', marginTop: 10, lineHeight: 1.7 }}>
-                    {lang === 'en'
-                      ? `💡 This is your proportional contribution. If you earn more than Piers this month, your % contribution to joint savings increases automatically in Money Time.`
-                      : `💡 Il s'agit de votre contribution proportionnelle. Si vous gagnez plus que Piers ce mois-ci, votre % de contribution à l'épargne commune augmente automatiquement dans Money Time.`}
                   </div>
                 </div>
               </div>
@@ -679,7 +858,6 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
         {tab === 'wishlist' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }} className="page-enter">
 
-            {/* Ready-to-buy banners */}
             {readyToBuy.map(item => (
               <div key={item.id} style={{ background: 'rgba(78,255,145,0.08)', border: '1px solid rgba(78,255,145,0.4)', borderRadius: 8, padding: '12px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ color: '#4eff91', fontSize: 14, fontWeight: 600 }}>
@@ -689,7 +867,6 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
               </div>
             ))}
 
-            {/* Allocation slider */}
             <div style={S.card}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                 <div style={S.label}>{t.wish_alloc}</div>
@@ -703,7 +880,6 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
               </div>
             </div>
 
-            {/* Stats */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
               {[
                 { label: t.wish_total, val: `€${Math.round(wishTotal).toLocaleString()}`, color: '#fff' },
@@ -717,9 +893,8 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
               ))}
             </div>
 
-            {/* Add form */}
-            <div style={{ ...S.card, borderColor: 'rgba(245,192,0,0.25)' }}>
-              <div style={{ ...S.label, color: 'rgba(245,192,0,0.8)', marginBottom: 16 }}>+ {t.wish_add}</div>
+            <div style={{ ...S.card, borderColor: 'rgba(244,147,6,0.25)' }}>
+              <div style={{ ...S.label, color: 'rgba(244,147,6,0.9)', marginBottom: 16 }}>+ {t.wish_add}</div>
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
                 <div>
                   <div style={S.label}>{t.wish_name}</div>
@@ -761,43 +936,30 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
               </div>
             </div>
 
-            {/* Wishlist error display */}
             {wishError && (
               <div style={{ background: 'rgba(255,60,60,0.08)', border: '1px solid rgba(255,80,80,0.4)', borderRadius: 8, padding: '12px 16px' }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: '#ff7070', marginBottom: 6 }}>
-                  ⚠ {lang === 'en' ? 'Failed to add item — Supabase error:' : 'Échec d\'ajout — Erreur Supabase :'}
+                  ⚠ {lang === 'en' ? 'Failed to add item:' : 'Échec d\'ajout :'}
                 </div>
-                <div style={{ fontSize: 11, color: '#ff9090', fontFamily: 'monospace', wordBreak: 'break-all', marginBottom: 6 }}>
-                  {wishError}
-                </div>
-                <div style={{ fontSize: 11, color: 'rgba(255,150,150,0.7)', lineHeight: 1.6 }}>
-                  {lang === 'en'
-                    ? 'If this says "relation does not exist", run the SQL from supabase_schema.sql in your Supabase SQL Editor to create the cv_wishlist table.'
-                    : 'Si l\'erreur mentionne "relation does not exist", exécutez le SQL de supabase_schema.sql dans Supabase pour créer la table cv_wishlist.'}
-                </div>
-                <button
-                  onClick={() => setWishError(null)}
-                  style={{ marginTop: 8, fontSize: 11, color: 'rgba(255,100,100,0.7)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
-                >
+                <div style={{ fontSize: 11, color: '#ff9090', fontFamily: 'monospace', wordBreak: 'break-all' }}>{wishError}</div>
+                <button onClick={() => setWishError(null)} style={{ marginTop: 8, fontSize: 11, color: 'rgba(255,100,100,0.7)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>
                   {lang === 'en' ? 'Dismiss' : 'Fermer'}
                 </button>
               </div>
             )}
 
-            {/* Sort controls */}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <span style={{ fontSize: 11, color: 'var(--c-muted)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>{t.wish_sort}:</span>
               {['priority', 'price', 'funded'].map(s => (
                 <button key={s} onClick={() => setWishlistSort(s)} style={{
                   padding: '4px 12px', borderRadius: 4, fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font-modern)',
                   background: wishlistSort === s ? 'var(--c-accent)' : 'transparent',
-                  color: wishlistSort === s ? '#1a1a1a' : 'var(--c-muted)',
+                  color: wishlistSort === s ? '#fff' : 'var(--c-muted)',
                   border: '1px solid var(--c-border)'
                 }}>{s}</button>
               ))}
             </div>
 
-            {/* Item cards */}
             {sortedWishlist.length === 0 ? (
               <div style={{ ...S.card, textAlign: 'center', color: 'var(--c-muted)', fontSize: 14, padding: 40 }}>
                 {lang === 'en' ? 'No wishlist items yet — add something above!' : 'Liste vide — ajoutez un article ci-dessus !'}
@@ -810,7 +972,6 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
               </div>
             )}
 
-            {/* Purchased items */}
             {wishlist.some(w => w.purchased) && (
               <div style={S.card}>
                 <div style={{ ...S.label, marginBottom: 12 }}>✓ {lang === 'en' ? 'Purchased' : 'Achetés'}</div>
@@ -829,7 +990,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
   )
 }
 
-const CV_PRIORITY_COLORS = { dream: '#f5c000', soon: '#ffcc44', someday: '#6ab4ff' }
+const CV_PRIORITY_COLORS = { dream: '#F49306', soon: '#E0858E', someday: '#6DB8BE' }
 const CV_PRIORITY_ICONS  = { dream: '⭐', soon: '🔜', someday: '☁️' }
 const CV_CAT_ICONS       = { gear: '🔧', software: '💻', other: '📦' }
 
@@ -840,7 +1001,7 @@ function CVWishCard({ item, onMarkBought, onDelete, S, lang }) {
   const pc = CV_PRIORITY_COLORS[item.priority] || '#aaa'
 
   return (
-    <div style={{ ...S.card, borderColor: isReady ? 'rgba(78,255,145,0.5)' : 'var(--c-border)', background: isReady ? 'rgba(78,255,145,0.04)' : 'var(--c-surface)' }}>
+    <div style={{ ...S.card, borderColor: isReady ? 'rgba(165,187,26,0.5)' : 'var(--c-border)', background: isReady ? 'rgba(165,187,26,0.04)' : 'var(--c-surface)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
@@ -859,24 +1020,28 @@ function CVWishCard({ item, onMarkBought, onDelete, S, lang }) {
         <div style={{ fontSize: 22, fontWeight: 700, color: '#fff', marginLeft: 12, flexShrink: 0 }}>€{item.price.toLocaleString()}</div>
       </div>
 
-      <div style={{ marginBottom: 12 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--c-muted)', marginBottom: 5 }}>
-          <span>€{Math.round(funded).toLocaleString()} {lang === 'en' ? 'funded' : 'financé'}</span>
-          <span>{Math.round(fundedPct)}%</span>
+      {/* SVG circle progress */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 12 }}>
+        <div style={{ position: 'relative', flexShrink: 0 }}>
+          <CircleProgress pct={fundedPct} color={isReady ? '#A5BB1A' : '#F49306'} size={52} />
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: isReady ? '#A5BB1A' : '#F49306' }}>
+            {Math.round(fundedPct)}%
+          </div>
         </div>
-        <div style={{ height: 6, background: 'var(--c-surface2)', borderRadius: 3, overflow: 'hidden' }}>
-          <div style={{ height: '100%', width: `${fundedPct}%`, background: isReady ? '#4eff91' : 'var(--c-accent)', borderRadius: 3, transition: 'width 0.4s' }}/>
+        <div>
+          <div style={{ fontSize: 13, color: '#f0f0f0', fontWeight: 600 }}>€{Math.round(funded).toLocaleString()} {lang === 'en' ? 'funded' : 'financé'}</div>
+          <div style={{ fontSize: 11, color: 'var(--c-muted)' }}>of €{item.price.toLocaleString()}</div>
         </div>
       </div>
 
       {isReady && (
-        <div style={{ fontSize: 12, color: '#4eff91', marginBottom: 10, fontWeight: 600 }}>
+        <div style={{ fontSize: 12, color: '#A5BB1A', marginBottom: 10, fontWeight: 600 }}>
           🎉 {lang === 'en' ? 'You can buy this now!' : 'Vous pouvez l\'acheter maintenant !'}
         </div>
       )}
 
       <div style={{ display: 'flex', gap: 8 }}>
-        <button onClick={() => onMarkBought(item.id)} style={{ ...S.btn, flex: 1, fontSize: 12, padding: '8px', background: isReady ? '#4eff91' : 'transparent', color: isReady ? '#000' : 'var(--c-muted)', border: `1px solid ${isReady ? '#4eff91' : 'var(--c-border)'}` }}>
+        <button onClick={() => onMarkBought(item.id)} style={{ ...S.btn, flex: 1, fontSize: 12, padding: '8px', background: isReady ? '#A5BB1A' : 'transparent', color: isReady ? '#fff' : 'var(--c-muted)', border: `1px solid ${isReady ? '#A5BB1A' : 'var(--c-border)'}` }}>
           {lang === 'en' ? 'Mark as bought ✓' : 'Marquer acheté ✓'}
         </button>
         <button onClick={() => onDelete(item.id)} style={{ background: 'rgba(255,78,78,0.1)', border: '1px solid rgba(255,78,78,0.3)', borderRadius: 6, padding: '8px 10px', color: 'rgba(255,100,100,0.9)', fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font-modern)' }}>✕</button>

@@ -107,6 +107,12 @@ export default function MoneyTime({ onBack, lang, setLang }) {
   const [payslipError, setPayslipError] = useState(null)
   const payslipInputRef = useRef(null)
 
+  // Budget slices (adjustable allocations as % of income)
+  const [budgetSlices, setBudgetSlices] = useState(() => {
+    const saved = localStorage.getItem('mt_budget_slices')
+    return saved ? JSON.parse(saved) : { savings: 15, fun: 10, tilly: 5, holidays: 5, treats: 5 }
+  })
+
   // Recurring state
   const [recurring, setRecurring] = useState([])
   const [newRec, setNewRec] = useState({ name: '', amount: '', category: '', account_id: '', day_of_month: 1 })
@@ -406,6 +412,32 @@ export default function MoneyTime({ onBack, lang, setLang }) {
   function dismissRecBanner() {
     localStorage.setItem(`mt_rec_dismissed_${TODAY_MONTH}`, '1')
     setShowRecBanner(false)
+  }
+
+  function adjustSlice(key, newPct) {
+    setBudgetSlices(prev => {
+      const fixedPct = combinedIncome > 0 ? (RENT_AMOUNT + recurringTotal) / combinedIncome * 100 : 0
+      const maxTotal = Math.max(0, 100 - fixedPct)
+      const others = Object.keys(prev).filter(k => k !== key)
+      const otherTotal = others.reduce((s, k) => s + prev[k], 0)
+      const clamped = Math.max(0, newPct)
+      let next = { ...prev }
+
+      const projectedTotal = clamped + otherTotal
+      if (projectedTotal > maxTotal && otherTotal > 0) {
+        const excess = projectedTotal - maxTotal
+        next[key] = clamped
+        for (const k of others) {
+          const share = prev[k] / otherTotal
+          next[k] = Math.max(0, Math.round(prev[k] - excess * share))
+        }
+      } else {
+        next[key] = Math.min(clamped, maxTotal)
+      }
+
+      localStorage.setItem('mt_budget_slices', JSON.stringify(next))
+      return next
+    })
   }
 
   // ── Derived values ───────────────────────────────────────────
@@ -924,89 +956,14 @@ export default function MoneyTime({ onBack, lang, setLang }) {
 
         {/* ── BUDGET TAB ── */}
         {tab === 'budget' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }} className="page-enter">
-            <div style={S.card}>
-              <div style={{ ...S.label, marginBottom: 12 }}>{t.savings_pct}</div>
-              <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-                <input type="range" min="5" max="50" value={savingsPct} onChange={e => setSavingsPct(parseInt(e.target.value))}
-                  style={{ flex: 1, accentColor: 'var(--v-accent)' }}/>
-                <div style={{ fontFamily: 'var(--font-vista)', fontSize: 24, color: 'var(--v-accent)', minWidth: 60 }}>{savingsPct}%</div>
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--v-muted)', marginTop: 8 }}>
-                = €{Math.round(savingsTarget)} / {lang === 'en' ? 'month' : 'mois'}
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-              <div style={S.card}>
-                <div style={S.label}>{lang === 'en' ? 'Proportional split this month' : 'Répartition proportionnelle'}</div>
-                {(() => {
-                  const jointPot = RENT_AMOUNT + savingsTarget
-                  const canelleContrib = incomeRatio.canelle * jointPot
-                  const piersContrib = incomeRatio.piers * jointPot
-                  return (
-                    <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                      <div style={{ fontSize: 11, color: 'var(--v-muted)', marginBottom: 4 }}>
-                        {lang === 'en'
-                          ? `Joint pot this month = rent €${RENT_AMOUNT} + savings €${Math.round(savingsTarget)} = €${Math.round(jointPot)}`
-                          : `Pot commun = loyer €${RENT_AMOUNT} + épargne €${Math.round(savingsTarget)} = €${Math.round(jointPot)}`}
-                      </div>
-                      {[
-                        { name: 'Canelle', pct: incomeRatio.canelle, contrib: canelleContrib, income: canelleIncome },
-                        { name: 'Piers',   pct: incomeRatio.piers,   contrib: piersContrib,   income: piersSalary },
-                      ].map(({ name, pct, contrib, income }) => (
-                        <div key={name}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
-                            <span style={{ color: 'var(--v-text)' }}>
-                              {name}
-                              <span style={{ color: 'var(--v-muted)', marginLeft: 6, fontSize: 11 }}>
-                                (€{Math.round(income).toLocaleString()} {lang === 'en' ? 'income' : 'revenus'})
-                              </span>
-                            </span>
-                            <span style={{ color: 'var(--v-accent)' }}>
-                              {Math.round(pct * 100)}% → €{Math.round(contrib).toLocaleString()}
-                            </span>
-                          </div>
-                          <div style={{ height: 4, background: 'rgba(0,0,0,0.4)', borderRadius: 2 }}>
-                            <div style={{ height: '100%', width: `${pct * 100}%`, background: 'var(--v-accent)', borderRadius: 2 }}/>
-                          </div>
-                        </div>
-                      ))}
-                      <div style={{ marginTop: 6, padding: '8px 12px', background: 'rgba(106,180,255,0.06)', borderRadius: 5, fontSize: 11, color: 'var(--v-muted)', lineHeight: 1.6 }}>
-                        💡 {lang === 'en'
-                          ? `Canelle contributes ${Math.round(incomeRatio.canelle * 100)}% (€${Math.round(canelleContrib)}) · Piers contributes ${Math.round(incomeRatio.piers * 100)}% (€${Math.round(piersContrib)}) to the joint pot this month. When Canelle earns more, her share increases automatically.`
-                          : `Canelle contribue ${Math.round(incomeRatio.canelle * 100)}% (€${Math.round(canelleContrib)}) · Piers contribue ${Math.round(incomeRatio.piers * 100)}% (€${Math.round(piersContrib)}) au pot commun ce mois. Quand Canelle gagne plus, sa part augmente automatiquement.`}
-                      </div>
-                    </div>
-                  )
-                })()}
-              </div>
-
-              <div style={S.card}>
-                <div style={S.label}>{lang === 'en' ? 'Fixed costs' : 'Charges fixes'}</div>
-                <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {[
-                    { label: 'Rent (Wise Piers)', val: RENT_AMOUNT },
-                    { label: lang === 'en' ? 'Food Budget' : 'Budget alimentation', val: FOOD_BUDGET },
-                    { label: lang === 'en' ? 'Savings target' : 'Objectif épargne', val: Math.round(savingsTarget) },
-                    { label: lang === 'en' ? 'Recurring expenses' : 'Dépenses récurrentes', val: Math.round(recurringTotal) },
-                  ].map(({ label, val }) => (
-                    <div key={label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                      <span style={{ color: 'var(--v-muted)' }}>{label}</span>
-                      <span style={{ color: 'var(--v-amber)' }}>€{val}</span>
-                    </div>
-                  ))}
-                  <div style={{ height: 1, background: 'var(--v-glass-border)', margin: '4px 0' }}/>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                    <span style={{ color: 'var(--v-text)', fontWeight: 700 }}>{lang === 'en' ? 'Remaining' : 'Restant'}</span>
-                    <span style={{ color: 'var(--v-green)', fontFamily: 'var(--font-vista)', fontSize: 18 }}>
-                      €{Math.round(combinedIncome - RENT_AMOUNT - FOOD_BUDGET - savingsTarget - recurringTotal)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <BudgetPie
+            combinedIncome={combinedIncome}
+            recurringTotal={recurringTotal}
+            budgetSlices={budgetSlices}
+            adjustSlice={adjustSlice}
+            S={S}
+            lang={lang}
+          />
         )}
 
         {/* ── WISHLIST TAB ── */}
@@ -1169,6 +1126,168 @@ export default function MoneyTime({ onBack, lang, setLang }) {
   )
 }
 
+// ── SVG donut pie helpers ───────────────────────────────────────────────
+function pxy(cx, cy, r, deg) {
+  const rad = ((deg - 90) * Math.PI) / 180
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) }
+}
+
+function donutArc(cx, cy, outerR, innerR, startDeg, endDeg) {
+  const span = endDeg - startDeg
+  if (span >= 359.9) { endDeg = startDeg + 359.9 }
+  const s = pxy(cx, cy, outerR, startDeg)
+  const e = pxy(cx, cy, outerR, endDeg)
+  const si = pxy(cx, cy, innerR, endDeg)
+  const ei = pxy(cx, cy, innerR, startDeg)
+  const lg = span > 180 ? 1 : 0
+  return `M${s.x},${s.y} A${outerR},${outerR} 0 ${lg} 1 ${e.x},${e.y} L${si.x},${si.y} A${innerR},${innerR} 0 ${lg} 0 ${ei.x},${ei.y} Z`
+}
+
+const SLICE_META = {
+  rent:      { label: 'Rent',      color: '#555',    fixed: true },
+  recurring: { label: 'Recurring', color: '#444',    fixed: true },
+  savings:   { label: 'Savings',   color: '#6DB8BE', fixed: false },
+  fun:       { label: 'Fun',       color: '#F49306', fixed: false },
+  tilly:     { label: 'Tilly',     color: '#E0858E', fixed: false },
+  holidays:  { label: 'Holidays',  color: '#A5BB1A', fixed: false },
+  treats:    { label: 'Treats',    color: '#ffcc44', fixed: false },
+}
+
+const isMonthEnd = new Date().getDate() >= 25
+
+function BudgetPie({ combinedIncome, recurringTotal, budgetSlices, adjustSlice, S, lang }) {
+  const rentPct  = combinedIncome > 0 ? (RENT_AMOUNT  / combinedIncome) * 100 : 0
+  const recPct   = combinedIncome > 0 ? (recurringTotal / combinedIncome) * 100 : 0
+  const adjTotal = Object.values(budgetSlices).reduce((s, v) => s + v, 0)
+  const totalUsed = rentPct + recPct + adjTotal
+  const unallocated = Math.max(0, 100 - totalUsed)
+  const overBudget = totalUsed > 100
+
+  // Build all slices in order
+  const allSlices = [
+    { key: 'rent',      pct: rentPct,  ...SLICE_META.rent },
+    { key: 'recurring', pct: recPct,   ...SLICE_META.recurring },
+    ...Object.entries(budgetSlices).map(([k, v]) => ({ key: k, pct: v, ...SLICE_META[k] })),
+    { key: 'unalloc',   pct: unallocated, label: 'Free', color: '#1a2744', fixed: true },
+  ]
+
+  // Build SVG arcs
+  const CX = 120, CY = 120, OR = 100, IR = 60
+  let angle = 0
+  const arcs = allSlices.map(sl => {
+    const span = (sl.pct / 100) * 360
+    const path = span > 0.5 ? donutArc(CX, CY, OR, IR, angle, angle + span - 1) : null
+    const mid = angle + span / 2
+    const labelPt = pxy(CX, CY, (OR + IR) / 2, mid)
+    angle += span
+    return { ...sl, path, span, labelPt }
+  })
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }} className="page-enter">
+      <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+
+        {/* Pie chart */}
+        <div style={{ ...S.card, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 260 }}>
+          <div style={{ ...S.label, marginBottom: 16 }}>{lang === 'en' ? 'Income allocation' : 'Répartition des revenus'}</div>
+          <svg width="240" height="240" viewBox="0 0 240 240">
+            {arcs.map(sl => sl.path && (
+              <path key={sl.key} d={sl.path} fill={sl.color} stroke="#1a2744" strokeWidth="2"/>
+            ))}
+            {/* centre label */}
+            <text x="120" y="115" textAnchor="middle" fill="#c8e0ff" fontSize="11" fontFamily="Share Tech Mono">
+              {lang === 'en' ? 'TOTAL' : 'TOTAL'}
+            </text>
+            <text x="120" y="132" textAnchor="middle" fill={overBudget ? '#ff4e4e' : '#4eff91'} fontSize="18" fontFamily="VT323" fontWeight="700">
+              {Math.round(totalUsed)}%
+            </text>
+          </svg>
+          <div style={{ marginTop: 8, fontSize: 13, fontWeight: 600, color: overBudget ? '#ff4e4e' : '#4eff91', textAlign: 'center' }}>
+            {overBudget
+              ? `⚠ Over budget (${Math.round(totalUsed - 100)}% excess)`
+              : `✓ ${Math.round(unallocated)}% unallocated (€${Math.round(combinedIncome * unallocated / 100).toLocaleString()})`}
+          </div>
+          {combinedIncome === 0 && (
+            <div style={{ fontSize: 11, color: 'var(--v-muted)', marginTop: 6, textAlign: 'center' }}>
+              {lang === 'en' ? 'Enter income to see % amounts' : 'Entrez un revenu pour voir les montants'}
+            </div>
+          )}
+        </div>
+
+        {/* Adjustable slices */}
+        <div style={{ flex: 1, minWidth: 300, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {/* Fixed */}
+          <div style={{ ...S.card, padding: 16 }}>
+            <div style={{ ...S.label, marginBottom: 10 }}>{lang === 'en' ? 'Fixed (cannot adjust)' : 'Fixes (non modifiables)'}</div>
+            {[
+              { key: 'rent', label: `Rent`, pct: rentPct, amt: RENT_AMOUNT },
+              { key: 'recurring', label: `Recurring`, pct: recPct, amt: recurringTotal },
+            ].map(sl => (
+              <div key={sl.key} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <div style={{ width: 10, height: 10, borderRadius: 2, background: SLICE_META[sl.key].color, flexShrink: 0 }}/>
+                <span style={{ flex: 1, fontSize: 13, color: 'var(--v-muted)' }}>{sl.label}</span>
+                <span style={{ fontSize: 12, color: 'var(--v-muted)' }}>€{Math.round(sl.amt).toLocaleString()}</span>
+                <span style={{ fontSize: 12, color: 'var(--v-muted)', minWidth: 38, textAlign: 'right' }}>{Math.round(sl.pct)}%</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Adjustable */}
+          <div style={{ ...S.card, padding: 16 }}>
+            <div style={{ ...S.label, marginBottom: 10 }}>{lang === 'en' ? 'Adjustable allocations' : 'Allocations ajustables'}</div>
+            {Object.entries(budgetSlices).map(([key, pct]) => {
+              const meta = SLICE_META[key]
+              const euros = Math.round(combinedIncome * pct / 100)
+              return (
+                <div key={key} style={{ marginBottom: 14 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <div style={{ width: 10, height: 10, borderRadius: 2, background: meta.color, flexShrink: 0 }}/>
+                    <span style={{ flex: 1, fontSize: 13, color: 'var(--v-text)', fontWeight: 500 }}>{meta.label}</span>
+                    {isMonthEnd && (
+                      <span style={{ fontSize: 10, color: meta.color, fontFamily: 'var(--font-mono)', letterSpacing: '0.05em' }}>💸 Transfer reminder</span>
+                    )}
+                    <span style={{ fontSize: 12, color: 'var(--v-muted)' }}>€{euros.toLocaleString()}</span>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <button
+                        onClick={() => adjustSlice(key, pct - 1)}
+                        style={{ ...S.btn, padding: '2px 8px', fontSize: 13, background: 'rgba(0,0,0,0.3)', color: 'var(--v-muted)', border: '1px solid var(--v-glass-border)' }}
+                      >−</button>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: meta.color, minWidth: 38, textAlign: 'center', lineHeight: '24px' }}>{Math.round(pct)}%</span>
+                      <button
+                        onClick={() => adjustSlice(key, pct + 1)}
+                        style={{ ...S.btn, padding: '2px 8px', fontSize: 13, background: 'rgba(0,0,0,0.3)', color: 'var(--v-muted)', border: '1px solid var(--v-glass-border)' }}
+                      >+</button>
+                    </div>
+                  </div>
+                  <input
+                    type="range" min="0" max="50" value={Math.round(pct)}
+                    onChange={e => adjustSlice(key, parseInt(e.target.value))}
+                    style={{ width: '100%', accentColor: meta.color }}
+                  />
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Summary */}
+          <div style={{ ...S.card, padding: 16, borderColor: overBudget ? 'rgba(255,78,78,0.3)' : 'rgba(78,255,145,0.2)', background: overBudget ? 'rgba(255,78,78,0.04)' : 'rgba(78,255,145,0.04)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+              <span style={{ color: 'var(--v-text)', fontWeight: 600 }}>
+                {overBudget
+                  ? (lang === 'en' ? '⚠ Over budget' : '⚠ Dépassement')
+                  : (lang === 'en' ? 'Remaining unallocated' : 'Non alloué restant')}
+              </span>
+              <span style={{ fontFamily: 'var(--font-vista)', fontSize: 18, color: overBudget ? '#ff4e4e' : '#4eff91' }}>
+                {Math.round(unallocated)}% · €{Math.round(combinedIncome * unallocated / 100).toLocaleString()}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function AccountCard({ acc, balance, onUpdate, S, t, lang }) {
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(balance.toString())
@@ -1237,6 +1356,20 @@ function CategoryBreakdown({ expenses, S, lang }) {
   )
 }
 
+function MTCircleProgress({ pct, color, size = 52 }) {
+  const R = (size - 6) / 2
+  const C = 2 * Math.PI * R
+  const offset = C - (Math.min(100, Math.max(0, pct)) / 100) * C
+  return (
+    <svg width={size} height={size} style={{ transform: 'rotate(-90deg)', display: 'block' }}>
+      <circle cx={size / 2} cy={size / 2} r={R} fill="none" stroke="rgba(0,0,0,0.4)" strokeWidth="5" />
+      <circle cx={size / 2} cy={size / 2} r={R} fill="none" stroke={color} strokeWidth="5"
+        strokeDasharray={C} strokeDashoffset={offset} strokeLinecap="round"
+        style={{ transition: 'stroke-dashoffset 0.5s ease' }} />
+    </svg>
+  )
+}
+
 const MT_OWNER_COLORS = { piers: '#6ab4ff', canelle: '#e8001c', both: '#4eff91' }
 const MT_OWNER_LABELS = { piers: '👨 PIERS', canelle: '👩 CANELLE', both: '👫 BOTH' }
 
@@ -1269,13 +1402,17 @@ function MTWishCard({ item, onMarkBought, onDelete, onFund, S, lang }) {
         <div style={{ fontFamily: 'var(--font-vista)', fontSize: 20, color: 'var(--v-text)', marginLeft: 12, flexShrink: 0 }}>€{item.price.toLocaleString()}</div>
       </div>
 
-      <div style={{ marginBottom: 12 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--v-muted)', marginBottom: 5 }}>
-          <span>€{Math.round(funded).toLocaleString()} {lang === 'en' ? 'funded' : 'financé'}</span>
-          <span>{Math.round(fundedPct)}%</span>
+      {/* SVG circle progress */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+        <div style={{ position: 'relative', flexShrink: 0 }}>
+          <MTCircleProgress pct={fundedPct} color={isReady ? 'var(--v-green)' : 'var(--v-accent)'} size={52} />
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: isReady ? 'var(--v-green)' : 'var(--v-accent)' }}>
+            {Math.round(fundedPct)}%
+          </div>
         </div>
-        <div style={{ height: 6, background: 'rgba(0,0,0,0.4)', borderRadius: 3, overflow: 'hidden' }}>
-          <div style={{ height: '100%', width: `${fundedPct}%`, background: isReady ? 'var(--v-green)' : 'var(--v-accent)', borderRadius: 3, transition: 'width 0.4s' }}/>
+        <div>
+          <div style={{ fontSize: 13, color: 'var(--v-text)', fontWeight: 600 }}>€{Math.round(funded).toLocaleString()} {lang === 'en' ? 'funded' : 'financé'}</div>
+          <div style={{ fontSize: 11, color: 'var(--v-muted)' }}>of €{item.price.toLocaleString()}</div>
         </div>
       </div>
 
