@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase, URSSAF_RATES } from '../../lib/supabase.js'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line } from 'recharts'
 import { format, startOfMonth, endOfMonth, subMonths, parseISO, getYear } from 'date-fns'
@@ -73,11 +73,19 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
   const [investPct, setInvestPct] = useState(INVEST_PCT * 100)
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
   const [tipIdx] = useState(() => new Date().getDate() % TIPS.en.length)
+  const [showWelcomeBanner, setShowWelcomeBanner] = useState(false)
+  const addIncomeRef = useRef(null)
 
   // New income form
   const [form, setForm] = useState({ client: '', amount: '', date: format(new Date(), 'yyyy-MM-dd'), cat: 'bnc_services', desc: '' })
 
   useEffect(() => { loadIncome() }, [selectedYear])
+
+  useEffect(() => {
+    if (localStorage.getItem('cv_history_dismissed')) return
+    supabase.from('cv_income').select('id', { count: 'exact', head: true })
+      .then(({ count }) => { if ((count || 0) === 0) setShowWelcomeBanner(true) })
+  }, [])
 
   async function loadIncome() {
     setLoading(true)
@@ -86,6 +94,17 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
       .order('date', { ascending: false })
     setIncome(data || [])
     setLoading(false)
+  }
+
+  function scrollToAddIncome(date) {
+    setTab('dashboard')
+    if (date) setForm(p => ({ ...p, date }))
+    setTimeout(() => addIncomeRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
+  }
+
+  function dismissWelcomeBanner() {
+    localStorage.setItem('cv_history_dismissed', '1')
+    setShowWelcomeBanner(false)
   }
 
   async function addIncome() {
@@ -177,8 +196,12 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
               }}>{l}</button>
             ))}
           </div>
+          <button
+            onClick={() => scrollToAddIncome(null)}
+            style={{ ...S.btn, background: 'transparent', border: '1px solid var(--c-border)', color: 'var(--c-muted)', padding: '8px 14px', fontSize: 12, whiteSpace: 'nowrap' }}
+          >📂 {lang === 'en' ? 'Add past income' : 'Ajouter revenu passé'}</button>
           <select value={selectedYear} onChange={e => setSelectedYear(parseInt(e.target.value))} style={{ ...S.input, width: 100 }}>
-            {[2023, 2024, 2025].map(y => <option key={y} value={y}>{y}</option>)}
+            {[2023, 2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
           </select>
         </div>
       </div>
@@ -198,8 +221,32 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
         {tab === 'dashboard' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }} className="page-enter">
 
+            {/* Welcome / history onboarding banner */}
+            {showWelcomeBanner && (
+              <div style={{ background: 'linear-gradient(135deg, rgba(232,0,28,0.08) 0%, rgba(201,168,76,0.06) 100%)', border: '1px solid rgba(232,0,28,0.25)', borderRadius: 10, padding: '24px 28px' }}>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#f0f0f0', marginBottom: 10, lineHeight: 1.4 }}>
+                  👋 Bienvenue Canelle !
+                </div>
+                <div style={{ fontSize: 14, color: 'rgba(240,240,240,0.75)', lineHeight: 1.7, marginBottom: 20, maxWidth: 680 }}>
+                  {lang === 'en'
+                    ? 'Before you start, add your income history from 2023, 2024 and 2025 so you can see your full picture. Just use the + Add Income form below and change the date to the right month — it only takes a few minutes.'
+                    : 'Avant de commencer, ajoute tes revenus de 2023, 2024 et 2025 pour avoir une vue complète. Utilise simplement le formulaire + Ajouter un revenu ci-dessous en changeant la date — ça prend quelques minutes seulement.'}
+                </div>
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => scrollToAddIncome('2023-01-01')}
+                    style={{ ...S.btn, background: 'var(--c-accent)', fontSize: 13 }}
+                  >{lang === 'en' ? 'Start adding history →' : 'Commencer l\'historique →'}</button>
+                  <button
+                    onClick={dismissWelcomeBanner}
+                    style={{ ...S.btn, background: 'transparent', border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(240,240,240,0.5)', fontSize: 13, fontWeight: 400 }}
+                  >{lang === 'en' ? "I'll do it later" : 'Je le ferai plus tard'}</button>
+                </div>
+              </div>
+            )}
+
             {/* Add income */}
-            <div style={{ ...S.card, borderColor: 'rgba(232,0,28,0.2)' }}>
+            <div ref={addIncomeRef} style={{ ...S.card, borderColor: 'rgba(232,0,28,0.2)' }}>
               <div style={{ ...S.label, color: 'rgba(232,0,28,0.6)', marginBottom: 16 }}>+ {t.add_income}</div>
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.5fr 1fr 1.5fr 2fr', gap: 12, marginBottom: 12 }}>
                 <div>
