@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import LandingPage from './components/LandingPage.jsx'
 import MoneyTime from './components/moneytime/MoneyTime.jsx'
+import MoneyTimeIntro from './components/moneytime/MoneyTimeIntro.jsx'
 import CanelleVisuels from './components/canelle/CanelleVisuels.jsx'
 import { supabase } from './lib/supabase.js'
 
@@ -10,6 +11,7 @@ export default function App() {
   const [app, setApp] = useState(null) // null | 'moneytime' | 'canelle'
   const [authed, setAuthed] = useState(() => sessionStorage.getItem('auth') === '1')
   const [lang, setLang] = useState('en')
+  const [mtIntroSeen, setMtIntroSeen] = useState(() => !!sessionStorage.getItem('mt_intro_done'))
 
   const handleAuth = (pw) => {
     if (pw === PASSWORD) {
@@ -26,6 +28,13 @@ export default function App() {
 
   if (!app) {
     return <LandingPage onSelect={setApp} lang={lang} setLang={setLang} />
+  }
+
+  if (app === 'moneytime' && !mtIntroSeen) {
+    return <MoneyTimeIntro onDone={() => {
+      sessionStorage.setItem('mt_intro_done', '1')
+      setMtIntroSeen(true)
+    }} />
   }
 
   if (app === 'moneytime') {
