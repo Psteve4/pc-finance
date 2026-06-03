@@ -774,22 +774,46 @@ export default function MoneyTime({ onBack, lang, setLang }) {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
               <div style={S.card}>
                 <div style={S.label}>{lang === 'en' ? 'Proportional split this month' : 'Répartition proportionnelle'}</div>
-                <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {[
-                    { name: 'Piers', pct: incomeRatio.piers, share: canSpend * incomeRatio.piers },
-                    { name: 'Canelle', pct: incomeRatio.canelle, share: canSpend * incomeRatio.canelle },
-                  ].map(({ name, pct, share }) => (
-                    <div key={name}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
-                        <span style={{ color: 'var(--v-text)' }}>{name}</span>
-                        <span style={{ color: 'var(--v-accent)' }}>€{Math.round(share)} ({Math.round(pct * 100)}%)</span>
+                {(() => {
+                  const jointPot = RENT_AMOUNT + savingsTarget
+                  const canelleContrib = incomeRatio.canelle * jointPot
+                  const piersContrib = incomeRatio.piers * jointPot
+                  return (
+                    <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      <div style={{ fontSize: 11, color: 'var(--v-muted)', marginBottom: 4 }}>
+                        {lang === 'en'
+                          ? `Joint pot this month = rent €${RENT_AMOUNT} + savings €${Math.round(savingsTarget)} = €${Math.round(jointPot)}`
+                          : `Pot commun = loyer €${RENT_AMOUNT} + épargne €${Math.round(savingsTarget)} = €${Math.round(jointPot)}`}
                       </div>
-                      <div style={{ height: 4, background: 'rgba(0,0,0,0.4)', borderRadius: 2 }}>
-                        <div style={{ height: '100%', width: `${pct * 100}%`, background: 'var(--v-accent)', borderRadius: 2 }}/>
+                      {[
+                        { name: 'Canelle', pct: incomeRatio.canelle, contrib: canelleContrib, income: canelleIncome },
+                        { name: 'Piers',   pct: incomeRatio.piers,   contrib: piersContrib,   income: piersSalary },
+                      ].map(({ name, pct, contrib, income }) => (
+                        <div key={name}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                            <span style={{ color: 'var(--v-text)' }}>
+                              {name}
+                              <span style={{ color: 'var(--v-muted)', marginLeft: 6, fontSize: 11 }}>
+                                (€{Math.round(income).toLocaleString()} {lang === 'en' ? 'income' : 'revenus'})
+                              </span>
+                            </span>
+                            <span style={{ color: 'var(--v-accent)' }}>
+                              {Math.round(pct * 100)}% → €{Math.round(contrib).toLocaleString()}
+                            </span>
+                          </div>
+                          <div style={{ height: 4, background: 'rgba(0,0,0,0.4)', borderRadius: 2 }}>
+                            <div style={{ height: '100%', width: `${pct * 100}%`, background: 'var(--v-accent)', borderRadius: 2 }}/>
+                          </div>
+                        </div>
+                      ))}
+                      <div style={{ marginTop: 6, padding: '8px 12px', background: 'rgba(106,180,255,0.06)', borderRadius: 5, fontSize: 11, color: 'var(--v-muted)', lineHeight: 1.6 }}>
+                        💡 {lang === 'en'
+                          ? `Canelle contributes ${Math.round(incomeRatio.canelle * 100)}% (€${Math.round(canelleContrib)}) · Piers contributes ${Math.round(incomeRatio.piers * 100)}% (€${Math.round(piersContrib)}) to the joint pot this month. When Canelle earns more, her share increases automatically.`
+                          : `Canelle contribue ${Math.round(incomeRatio.canelle * 100)}% (€${Math.round(canelleContrib)}) · Piers contribue ${Math.round(incomeRatio.piers * 100)}% (€${Math.round(piersContrib)}) au pot commun ce mois. Quand Canelle gagne plus, sa part augmente automatiquement.`}
                       </div>
                     </div>
-                  ))}
-                </div>
+                  )
+                })()}
               </div>
 
               <div style={S.card}>

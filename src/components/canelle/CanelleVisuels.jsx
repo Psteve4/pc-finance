@@ -255,7 +255,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
     card: { background: 'var(--c-surface)', border: '1px solid var(--c-border)', borderRadius: 10, padding: 24 },
     label: { fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--c-muted)', marginBottom: 6 },
     input: { background: 'var(--c-surface2)', border: '1px solid var(--c-border)', borderRadius: 6, padding: '10px 14px', color: 'var(--c-text)', fontSize: 13, width: '100%', fontFamily: 'var(--font-modern)' },
-    btn: { background: 'var(--c-accent)', border: 'none', borderRadius: 6, padding: '10px 20px', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.05em', fontFamily: 'var(--font-modern)', transition: 'all 0.15s' },
+    btn: { background: 'var(--c-accent)', border: 'none', borderRadius: 6, padding: '10px 20px', color: '#1a1a1a', fontSize: 13, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.05em', fontFamily: 'var(--font-modern)', transition: 'all 0.15s' },
     navBtn: (active) => ({
       padding: '14px 22px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
       background: 'transparent', color: active ? '#fff' : 'var(--c-muted)',
@@ -274,7 +274,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
           <div>
             <div style={{ lineHeight: 1 }}>
               <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 26, fontWeight: 700, color: '#f0f0f0', letterSpacing: '-0.01em' }}>Canelle</span>
-              <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 26, fontWeight: 700, color: '#e8001c', letterSpacing: '-0.01em' }}>.visuels</span>
+              <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 26, fontWeight: 700, color: '#f5c000', letterSpacing: '-0.01em' }}>.visuels</span>
             </div>
             <div style={{ fontSize: 11, color: 'var(--c-muted)', letterSpacing: '0.15em' }}>BUSINESS TRACKER</div>
           </div>
@@ -288,7 +288,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
               <button key={l} onClick={() => setLang(l)} style={{
                 padding: '6px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600,
                 background: lang === l ? 'var(--c-accent)' : 'transparent',
-                color: lang === l ? '#fff' : 'var(--c-muted)',
+                color: lang === l ? '#1a1a1a' : 'var(--c-muted)',
                 border: '1px solid var(--c-border)', textTransform: 'uppercase',
                 cursor: 'pointer', fontFamily: 'var(--font-modern)'
               }}>{l}</button>
@@ -321,7 +321,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
 
             {/* Welcome / history onboarding banner */}
             {showWelcomeBanner && (
-              <div style={{ background: 'linear-gradient(135deg, rgba(232,0,28,0.08) 0%, rgba(201,168,76,0.06) 100%)', border: '1px solid rgba(232,0,28,0.25)', borderRadius: 10, padding: '24px 28px' }}>
+              <div style={{ background: 'linear-gradient(135deg, rgba(245,192,0,0.08) 0%, rgba(201,168,76,0.06) 100%)', border: '1px solid rgba(245,192,0,0.3)', borderRadius: 10, padding: '24px 28px' }}>
                 <div style={{ fontSize: 18, fontWeight: 700, color: '#f0f0f0', marginBottom: 10, lineHeight: 1.4 }}>
                   👋 Bienvenue Canelle !
                 </div>
@@ -344,8 +344,8 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
             )}
 
             {/* Add income */}
-            <div ref={addIncomeRef} style={{ ...S.card, borderColor: 'rgba(232,0,28,0.2)' }}>
-              <div style={{ ...S.label, color: 'rgba(232,0,28,0.6)', marginBottom: 16 }}>+ {t.add_income}</div>
+            <div ref={addIncomeRef} style={{ ...S.card, borderColor: 'rgba(245,192,0,0.3)' }}>
+              <div style={{ ...S.label, color: 'rgba(245,192,0,0.8)', marginBottom: 16 }}>+ {t.add_income}</div>
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.5fr 1fr 1.5fr 2fr', gap: 12, marginBottom: 12 }}>
                 <div>
                   <div style={S.label}>{t.client}</div>
@@ -371,21 +371,62 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
                 </div>
               </div>
 
-              {/* Live breakdown preview */}
+              {/* Live breakdown — flow diagram */}
               {previewGross > 0 && (
-                <div style={{ background: 'var(--c-surface2)', borderRadius: 8, padding: 16, display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
-                  {[
-                    { label: t.gross, val: previewGross, color: '#fff' },
-                    { label: `URSSAF (${Math.round(rate * 100)}%)`, val: -previewUrssaf, color: 'var(--c-accent)' },
-                    { label: t.net, val: previewNet, color: '#4eff91' },
-                    { label: `${t.company} (${Math.round(investPct)}%)`, val: previewCompany, color: '#ffcc44' },
-                    { label: t.to_wise, val: previewToPiers, color: '#6ab4ff' },
-                  ].map(({ label, val, color }) => (
-                    <div key={label} style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: 10, color: 'var(--c-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>{label}</div>
-                      <div style={{ fontSize: 22, fontWeight: 700, color }}>{val < 0 ? '-' : ''}€{Math.round(Math.abs(val)).toLocaleString()}</div>
+                <div style={{ background: 'var(--c-surface2)', borderRadius: 8, padding: '16px 20px' }}>
+                  {/* Step 1: Receipt */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <div style={{ fontSize: 12, color: 'var(--c-muted)', letterSpacing: '0.06em' }}>
+                      🏦 {lang === 'en' ? 'MONOBANQUE CANELLE — receives payment' : 'MONOBANQUE CANELLE — reçoit le paiement'}
                     </div>
-                  ))}
+                    <div style={{ fontSize: 20, fontWeight: 700, color: '#f0f0f0' }}>€{Math.round(previewGross).toLocaleString()}</div>
+                  </div>
+                  {/* Arrow + URSSAF deduction */}
+                  <div style={{ paddingLeft: 16, marginBottom: 8 }}>
+                    <div style={{ fontSize: 12, color: 'var(--c-muted)', marginBottom: 3 }}>
+                      ↓ {lang === 'en' ? `minus URSSAF (${Math.round(rate * 100)}%)` : `moins URSSAF (${Math.round(rate * 100)}%)`}
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#ff8c42' }}>
+                      −€{Math.round(previewUrssaf).toLocaleString()}
+                    </div>
+                  </div>
+                  {/* Net income bar */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'rgba(78,255,145,0.08)', border: '1px solid rgba(78,255,145,0.2)', borderRadius: 6, marginBottom: 10 }}>
+                    <div style={{ fontSize: 12, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#4eff91', fontWeight: 700 }}>
+                      {lang === 'en' ? 'Net income' : 'Net personnel'}
+                    </div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: '#4eff91' }}>€{Math.round(previewNet).toLocaleString()}</div>
+                  </div>
+                  {/* 3-way split */}
+                  <div style={{ paddingLeft: 16 }}>
+                    <div style={{ fontSize: 12, color: 'var(--c-muted)', marginBottom: 10 }}>
+                      ↓ {lang === 'en' ? 'split into 3:' : 'réparti en 3 :'}
+                    </div>
+                    {[
+                      {
+                        label: lang === 'en' ? 'Wise Canelle (your salary)' : 'Wise Canelle (votre salaire)',
+                        pct: Math.round(100 - piersPct - investPct),
+                        val: previewSalary, color: '#4eff91',
+                      },
+                      {
+                        label: lang === 'en' ? 'Wise Piers — joint savings & rent' : 'Wise Piers — épargne commune & loyer',
+                        pct: Math.round(piersPct),
+                        val: previewToPiers, color: '#6ab4ff',
+                      },
+                      {
+                        label: lang === 'en' ? 'Company reinvestment' : 'Réinvesti entreprise',
+                        pct: Math.round(investPct),
+                        val: previewCompany, color: '#ffcc44',
+                      },
+                    ].map(({ label, pct, val, color }) => (
+                      <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                        <div style={{ color, fontSize: 14, flexShrink: 0 }}>→</div>
+                        <div style={{ flex: 1, fontSize: 12, color: 'var(--c-muted)' }}>{label}</div>
+                        <div style={{ fontSize: 11, color: 'var(--c-muted)', minWidth: 32, textAlign: 'right' }}>{pct}%</div>
+                        <div style={{ fontSize: 16, fontWeight: 700, color, minWidth: 70, textAlign: 'right' }}>€{Math.round(val).toLocaleString()}</div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -469,7 +510,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
                   <XAxis dataKey="month" tick={{ fill: '#666', fontSize: 11 }} axisLine={false} tickLine={false}/>
                   <YAxis tick={{ fill: '#666', fontSize: 10 }} axisLine={false} tickLine={false}/>
                   <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, fontSize: 12 }} labelStyle={{ color: '#999' }}/>
-                  <Bar dataKey="gross" fill="rgba(232,0,28,0.5)" radius={[3,3,0,0]} name={t.gross}/>
+                  <Bar dataKey="gross" fill="rgba(245,192,0,0.7)" radius={[3,3,0,0]} name={t.gross}/>
                   <Bar dataKey="net" fill="#4eff91" radius={[3,3,0,0]} name={t.net}/>
                 </BarChart>
               </ResponsiveContainer>
@@ -605,13 +646,18 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
                   ))}
                 </div>
 
-                {/* Rent coverage */}
-                <div style={{ background: 'rgba(232,0,28,0.06)', borderRadius: 8, padding: 16, border: '1px solid rgba(232,0,28,0.15)' }}>
-                  <div style={S.label}>🏠 {lang === 'en' ? 'Rent coverage from Wise Piers' : 'Couverture loyer depuis Wise Piers'}</div>
-                  <div style={{ fontSize: 13, color: 'rgba(240,240,240,0.7)', marginTop: 8, lineHeight: 1.7 }}>
+                {/* Wise Piers note */}
+                <div style={{ background: 'rgba(245,192,0,0.05)', borderRadius: 8, padding: 16, border: '1px solid rgba(245,192,0,0.2)' }}>
+                  <div style={{ ...S.label, color: 'rgba(245,192,0,0.7)' }}>🏠 {lang === 'en' ? '→ Wise Piers (joint savings & rent) — how it works' : '→ Wise Piers (épargne commune & loyer) — fonctionnement'}</div>
+                  <div style={{ fontSize: 13, color: 'rgba(240,240,240,0.7)', marginTop: 8, lineHeight: 1.8 }}>
                     {lang === 'en'
-                      ? `€${RENT} rent is paid from Piers' Wise. Your ${Math.round(piersPct)}% transfer (€${Math.round(10 * piersPct)}/1000€ net) goes there first to cover it.`
-                      : `Le loyer de ${RENT}€ est prélevé sur le Wise de Piers. Votre virement de ${Math.round(piersPct)}% (${Math.round(10 * piersPct)}€/1000€ net) l'y alimente.`}
+                      ? `Your ${Math.round(piersPct)}% transfer (€${Math.round(10 * piersPct)} per €1,000 net) goes to Piers' Wise. It covers the €${RENT} shared rent first, then contributes to joint savings.`
+                      : `Votre virement de ${Math.round(piersPct)}% (${Math.round(10 * piersPct)}€ par 1 000€ net) va sur le Wise de Piers. Il couvre d'abord le loyer commun de ${RENT}€, puis alimente l'épargne commune.`}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'rgba(245,192,0,0.6)', marginTop: 10, lineHeight: 1.7 }}>
+                    {lang === 'en'
+                      ? `💡 This is your proportional contribution. If you earn more than Piers this month, your % contribution to joint savings increases automatically in Money Time.`
+                      : `💡 Il s'agit de votre contribution proportionnelle. Si vous gagnez plus que Piers ce mois-ci, votre % de contribution à l'épargne commune augmente automatiquement dans Money Time.`}
                   </div>
                 </div>
               </div>
@@ -662,8 +708,8 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
             </div>
 
             {/* Add form */}
-            <div style={{ ...S.card, borderColor: 'rgba(232,0,28,0.2)' }}>
-              <div style={{ ...S.label, color: 'rgba(232,0,28,0.6)', marginBottom: 16 }}>+ {t.wish_add}</div>
+            <div style={{ ...S.card, borderColor: 'rgba(245,192,0,0.25)' }}>
+              <div style={{ ...S.label, color: 'rgba(245,192,0,0.8)', marginBottom: 16 }}>+ {t.wish_add}</div>
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
                 <div>
                   <div style={S.label}>{t.wish_name}</div>
@@ -706,7 +752,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
                 <button key={s} onClick={() => setWishlistSort(s)} style={{
                   padding: '4px 12px', borderRadius: 4, fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font-modern)',
                   background: wishlistSort === s ? 'var(--c-accent)' : 'transparent',
-                  color: wishlistSort === s ? '#fff' : 'var(--c-muted)',
+                  color: wishlistSort === s ? '#1a1a1a' : 'var(--c-muted)',
                   border: '1px solid var(--c-border)'
                 }}>{s}</button>
               ))}
@@ -744,7 +790,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
   )
 }
 
-const CV_PRIORITY_COLORS = { dream: '#e8001c', soon: '#ffcc44', someday: '#6ab4ff' }
+const CV_PRIORITY_COLORS = { dream: '#f5c000', soon: '#ffcc44', someday: '#6ab4ff' }
 const CV_PRIORITY_ICONS  = { dream: '⭐', soon: '🔜', someday: '☁️' }
 const CV_CAT_ICONS       = { gear: '🔧', software: '💻', other: '📦' }
 

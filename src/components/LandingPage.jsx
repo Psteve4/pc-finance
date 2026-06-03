@@ -93,7 +93,7 @@ export default function LandingPage({ onSelect, lang, setLang }) {
           >
             <div style={{ lineHeight: 1 }}>
               <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 32, fontWeight: 700, color: '#f0f0f0', letterSpacing: '-0.01em' }}>Canelle</span>
-              <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 32, fontWeight: 700, color: '#e8001c', letterSpacing: '-0.01em' }}>.visuels</span>
+              <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 32, fontWeight: 700, color: '#f5c000', letterSpacing: '-0.01em' }}>.visuels</span>
             </div>
             <div style={{
               fontSize: 12, color: 'rgba(240,240,240,0.4)',
@@ -103,8 +103,8 @@ export default function LandingPage({ onSelect, lang, setLang }) {
               {['URSSAF', 'Factures', 'Historique', 'Objectifs'].map(tag => (
                 <span key={tag} style={{
                   fontSize: 11, padding: '3px 8px', borderRadius: 3,
-                  background: 'rgba(232,0,28,0.1)', color: 'rgba(232,0,28,0.8)',
-                  border: '1px solid rgba(232,0,28,0.2)', fontWeight: 600,
+                  background: 'rgba(245,192,0,0.12)', color: '#c9a200',
+                  border: '1px solid rgba(245,192,0,0.25)', fontWeight: 600,
                   letterSpacing: '0.05em'
                 }}>{tag}</span>
               ))}
@@ -135,11 +135,11 @@ function AppCard({ id, hovered, onHover, onClick, theme, badge, children }) {
           : '#0d0d0d',
         border: isVista
           ? `1.5px solid ${hovered ? '#6ab4ff' : 'rgba(106,180,255,0.25)'}`
-          : `1.5px solid ${hovered ? '#e8001c' : 'rgba(255,255,255,0.08)'}`,
+          : `1.5px solid ${hovered ? '#f5c000' : 'rgba(255,255,255,0.08)'}`,
         boxShadow: hovered
           ? isVista
             ? '0 20px 60px rgba(106,180,255,0.2), 0 0 0 1px rgba(106,180,255,0.15)'
-            : '0 20px 60px rgba(232,0,28,0.15), 0 0 0 1px rgba(232,0,28,0.1)'
+            : '0 20px 60px rgba(245,192,0,0.18), 0 0 0 1px rgba(245,192,0,0.12)'
           : '0 4px 24px rgba(0,0,0,0.4)',
       }}
     >
@@ -147,7 +147,7 @@ function AppCard({ id, hovered, onHover, onClick, theme, badge, children }) {
       <div style={{
         position: 'absolute', top: -60, right: -60,
         width: 180, height: 180, borderRadius: '50%',
-        background: isVista ? 'rgba(106,180,255,0.06)' : 'rgba(232,0,28,0.04)',
+        background: isVista ? 'rgba(106,180,255,0.06)' : 'rgba(245,192,0,0.04)',
         filter: 'blur(30px)', pointerEvents: 'none'
       }}/>
 
@@ -156,9 +156,9 @@ function AppCard({ id, hovered, onHover, onClick, theme, badge, children }) {
         display: 'inline-block', marginBottom: 24, padding: '4px 10px',
         borderRadius: 4, fontSize: 10, fontWeight: 700, letterSpacing: '0.15em',
         textTransform: 'uppercase',
-        background: isVista ? 'rgba(106,180,255,0.1)' : 'rgba(232,0,28,0.08)',
-        color: isVista ? 'rgba(106,180,255,0.7)' : 'rgba(232,0,28,0.6)',
-        border: `1px solid ${isVista ? 'rgba(106,180,255,0.2)' : 'rgba(232,0,28,0.15)'}`,
+        background: isVista ? 'rgba(106,180,255,0.1)' : 'rgba(245,192,0,0.1)',
+        color: isVista ? 'rgba(106,180,255,0.7)' : '#c9a200',
+        border: `1px solid ${isVista ? 'rgba(106,180,255,0.2)' : 'rgba(245,192,0,0.25)'}`,
         fontFamily: 'Space Grotesk, sans-serif'
       }}>{badge}</div>
 

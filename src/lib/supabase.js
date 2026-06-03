@@ -16,7 +16,7 @@ export const ACCOUNTS = [
   { id: 'wise_piers',    name: 'Wise – Piers',    owner: 'piers',   type: 'wise',    color: '#00B9FF' },
   { id: 'wise_canelle',  name: 'Wise – Canelle',  owner: 'canelle', type: 'wise',    color: '#00B9FF' },
   { id: 'mono_piers',    name: 'Monobanque – Piers',    owner: 'piers',   type: 'manual',  color: '#FFD700' },
-  { id: 'mono_canelle',  name: 'Monobanque – Canelle',  owner: 'canelle', type: 'manual',  color: '#FFD700' },
+  { id: 'mono_canelle',  name: 'Monobanque – Canelle (receives client payments)', owner: 'canelle', type: 'manual', color: '#FFD700' },
   { id: 'laposte',       name: 'La Poste – Canelle',    owner: 'canelle', type: 'manual',  color: '#F7A600' },
   { id: 'wise_assets',   name: 'Wise Assets – MSCI World', owner: 'piers', type: 'investment', color: '#4eff91' },
 ]
