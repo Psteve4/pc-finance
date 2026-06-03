@@ -91,7 +91,7 @@ export default function LandingPage({ onSelect, lang, setLang }) {
             theme="canelle"
             badge="Pro Studio"
           >
-            <img src="/canelle-logo.jpg" alt="Canelle Visuels" style={{ height: 80, objectFit: 'contain' }} />
+            <img src="/canelle-logo.png" alt="Canelle Visuels" style={{ height: 80, objectFit: 'contain' }} />
             <div style={{
               fontSize: 12, color: 'rgba(240,240,240,0.4)',
               marginTop: 12, letterSpacing: '0.1em', fontWeight: 500
