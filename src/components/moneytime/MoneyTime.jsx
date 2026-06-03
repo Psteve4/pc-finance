@@ -98,6 +98,8 @@ export default function MoneyTime({ onBack, lang, setLang }) {
   const [wishlistMT, setWishlistMT] = useState([])
   const [newWishMT, setNewWishMT] = useState({ name: '', price: '', url: '', category: '', owner: 'both' })
   const [wishlistMTSort, setWishlistMTSort] = useState('owner')
+  const [wishErrorMT, setWishErrorMT] = useState(null)
+  const [wishLoadingMT, setWishLoadingMT] = useState(false)
   const [newExp, setNewExp] = useState({ amount: '', category: '', account: '', desc: '', date: format(new Date(), 'yyyy-MM-dd') })
   const [newSalary, setNewSalary] = useState('')
 
@@ -278,7 +280,9 @@ export default function MoneyTime({ onBack, lang, setLang }) {
 
   async function addWishMT() {
     if (!newWishMT.name || !newWishMT.price) return
-    const { data, error } = await supabase.from('mt_wishlist').insert({
+    setWishErrorMT(null)
+    setWishLoadingMT(true)
+    const payload = {
       name: newWishMT.name,
       price: parseFloat(newWishMT.price),
       url: newWishMT.url || null,
@@ -286,13 +290,19 @@ export default function MoneyTime({ onBack, lang, setLang }) {
       owner: newWishMT.owner || 'both',
       funded: 0,
       purchased: false,
-    }).select().single()
+    }
+    console.log('[mt_wishlist] inserting →', payload)
+    const { data, error } = await supabase.from('mt_wishlist').insert(payload).select().single()
+    console.log('[mt_wishlist] result →', { data, error })
     if (error) {
-      console.error('mt_wishlist insert error:', error)
+      console.error('[mt_wishlist] insert failed:', error)
+      setWishErrorMT(`${error.message} (code: ${error.code})`)
+      setWishLoadingMT(false)
       return
     }
     setWishlistMT(prev => [...prev, data])
     setNewWishMT({ name: '', price: '', url: '', category: '', owner: 'both' })
+    setWishLoadingMT(false)
   }
 
   async function deleteWishMT(id) {
@@ -899,9 +909,38 @@ export default function MoneyTime({ onBack, lang, setLang }) {
                   <div style={{ ...S.label, marginBottom: 4 }}>{t.wish_url}</div>
                   <input style={S.input} placeholder="https://..." value={newWishMT.url} onChange={e => setNewWishMT(p => ({ ...p, url: e.target.value }))}/>
                 </div>
-                <button style={{ ...S.btn, alignSelf: 'flex-end' }} onClick={addWishMT}>{t.add}</button>
+                <button
+                  style={{ ...S.btn, alignSelf: 'flex-end', opacity: wishLoadingMT ? 0.6 : 1 }}
+                  onClick={addWishMT}
+                  disabled={wishLoadingMT}
+                >
+                  {wishLoadingMT ? (lang === 'en' ? 'Adding…' : 'Ajout…') : t.add}
+                </button>
               </div>
             </div>
+
+            {/* Wishlist error display */}
+            {wishErrorMT && (
+              <div style={{ background: 'rgba(255,78,78,0.08)', border: '1px solid rgba(255,78,78,0.35)', borderRadius: 6, padding: '12px 16px' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--v-red)', marginBottom: 6 }}>
+                  ⚠ {lang === 'en' ? 'Failed to add item — Supabase error:' : 'Échec d\'ajout — Erreur Supabase :'}
+                </div>
+                <div style={{ fontSize: 11, color: '#ff8080', fontFamily: 'var(--font-mono)', wordBreak: 'break-all', marginBottom: 6 }}>
+                  {wishErrorMT}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--v-muted)', lineHeight: 1.6 }}>
+                  {lang === 'en'
+                    ? 'If this says "relation does not exist", run the SQL from supabase_schema.sql in your Supabase SQL Editor to create the mt_wishlist table.'
+                    : 'Si l\'erreur mentionne "relation does not exist", exécutez le SQL de supabase_schema.sql dans Supabase pour créer la table mt_wishlist.'}
+                </div>
+                <button
+                  onClick={() => setWishErrorMT(null)}
+                  style={{ marginTop: 8, fontSize: 11, color: 'var(--v-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline', fontFamily: 'var(--font-mono)' }}
+                >
+                  {lang === 'en' ? 'Dismiss' : 'Fermer'}
+                </button>
+              </div>
+            )}
 
             {/* Sort controls */}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>

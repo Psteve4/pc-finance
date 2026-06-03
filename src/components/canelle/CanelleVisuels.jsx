@@ -89,6 +89,8 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
   const [newWishItem, setNewWishItem] = useState({ name: '', price: '', url: '', category: 'gear', priority: 'soon' })
   const [wishlistPct, setWishlistPct] = useState(() => parseInt(localStorage.getItem('cv_wishlist_pct') || '5'))
   const [wishlistSort, setWishlistSort] = useState('priority')
+  const [wishError, setWishError] = useState(null)
+  const [wishLoading, setWishLoading] = useState(false)
 
   // New income form
   const [form, setForm] = useState({ client: '', amount: '', date: format(new Date(), 'yyyy-MM-dd'), cat: 'bnc_services', desc: '' })
@@ -130,7 +132,9 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
 
   async function addWishItem() {
     if (!newWishItem.name || !newWishItem.price) return
-    const { data, error } = await supabase.from('cv_wishlist').insert({
+    setWishError(null)
+    setWishLoading(true)
+    const payload = {
       name: newWishItem.name,
       price: parseFloat(newWishItem.price),
       url: newWishItem.url || null,
@@ -138,13 +142,19 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
       priority: newWishItem.priority || 'soon',
       funded: 0,
       purchased: false,
-    }).select().single()
+    }
+    console.log('[cv_wishlist] inserting →', payload)
+    const { data, error } = await supabase.from('cv_wishlist').insert(payload).select().single()
+    console.log('[cv_wishlist] result →', { data, error })
     if (error) {
-      console.error('cv_wishlist insert error:', error)
+      console.error('[cv_wishlist] insert failed:', error)
+      setWishError(`${error.message} (code: ${error.code})`)
+      setWishLoading(false)
       return
     }
     setWishlist(prev => [...prev, data])
     setNewWishItem({ name: '', price: '', url: '', category: 'gear', priority: 'soon' })
+    setWishLoading(false)
   }
 
   async function deleteWishItem(id) {
@@ -741,9 +751,38 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
                   <div style={S.label}>{t.wish_url}</div>
                   <input style={S.input} value={newWishItem.url} onChange={e => setNewWishItem(p => ({ ...p, url: e.target.value }))} placeholder="https://..."/>
                 </div>
-                <button style={{ ...S.btn, alignSelf: 'flex-end', whiteSpace: 'nowrap' }} onClick={addWishItem}>{t.add}</button>
+                <button
+                  style={{ ...S.btn, alignSelf: 'flex-end', whiteSpace: 'nowrap', opacity: wishLoading ? 0.6 : 1 }}
+                  onClick={addWishItem}
+                  disabled={wishLoading}
+                >
+                  {wishLoading ? (lang === 'en' ? 'Adding…' : 'Ajout…') : t.add}
+                </button>
               </div>
             </div>
+
+            {/* Wishlist error display */}
+            {wishError && (
+              <div style={{ background: 'rgba(255,60,60,0.08)', border: '1px solid rgba(255,80,80,0.4)', borderRadius: 8, padding: '12px 16px' }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#ff7070', marginBottom: 6 }}>
+                  ⚠ {lang === 'en' ? 'Failed to add item — Supabase error:' : 'Échec d\'ajout — Erreur Supabase :'}
+                </div>
+                <div style={{ fontSize: 11, color: '#ff9090', fontFamily: 'monospace', wordBreak: 'break-all', marginBottom: 6 }}>
+                  {wishError}
+                </div>
+                <div style={{ fontSize: 11, color: 'rgba(255,150,150,0.7)', lineHeight: 1.6 }}>
+                  {lang === 'en'
+                    ? 'If this says "relation does not exist", run the SQL from supabase_schema.sql in your Supabase SQL Editor to create the cv_wishlist table.'
+                    : 'Si l\'erreur mentionne "relation does not exist", exécutez le SQL de supabase_schema.sql dans Supabase pour créer la table cv_wishlist.'}
+                </div>
+                <button
+                  onClick={() => setWishError(null)}
+                  style={{ marginTop: 8, fontSize: 11, color: 'rgba(255,100,100,0.7)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
+                >
+                  {lang === 'en' ? 'Dismiss' : 'Fermer'}
+                </button>
+              </div>
+            )}
 
             {/* Sort controls */}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
