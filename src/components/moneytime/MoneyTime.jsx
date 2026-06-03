@@ -112,6 +112,12 @@ export default function MoneyTime({ onBack, lang, setLang }) {
     const saved = localStorage.getItem('mt_budget_slices')
     return saved ? JSON.parse(saved) : { savings: 15, fun: 10, tilly: 5, holidays: 5, treats: 5 }
   })
+  // Custom pockets metadata (name + color, keyed by pocket_<id>)
+  const [customPockets, setCustomPockets] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('mt_custom_pockets') || '[]') } catch { return [] }
+  })
+  const [showAddPocket, setShowAddPocket] = useState(false)
+  const [newPocket, setNewPocket] = useState({ name: '', color: '#F49306', pct: 5 })
 
   // Recurring state
   const [recurring, setRecurring] = useState([])
@@ -435,6 +441,34 @@ export default function MoneyTime({ onBack, lang, setLang }) {
         next[key] = Math.min(clamped, maxTotal)
       }
 
+      localStorage.setItem('mt_budget_slices', JSON.stringify(next))
+      return next
+    })
+  }
+
+  function addCustomPocket() {
+    if (!newPocket.name.trim()) return
+    const key = `pocket_${Date.now()}`
+    const meta = { key, name: newPocket.name.trim(), color: newPocket.color }
+    const nextPockets = [...customPockets, meta]
+    setCustomPockets(nextPockets)
+    localStorage.setItem('mt_custom_pockets', JSON.stringify(nextPockets))
+    setBudgetSlices(prev => {
+      const next = { ...prev, [key]: newPocket.pct }
+      localStorage.setItem('mt_budget_slices', JSON.stringify(next))
+      return next
+    })
+    setNewPocket({ name: '', color: '#F49306', pct: 5 })
+    setShowAddPocket(false)
+  }
+
+  function deleteCustomPocket(key) {
+    const nextPockets = customPockets.filter(p => p.key !== key)
+    setCustomPockets(nextPockets)
+    localStorage.setItem('mt_custom_pockets', JSON.stringify(nextPockets))
+    setBudgetSlices(prev => {
+      const next = { ...prev }
+      delete next[key]
       localStorage.setItem('mt_budget_slices', JSON.stringify(next))
       return next
     })
@@ -961,6 +995,13 @@ export default function MoneyTime({ onBack, lang, setLang }) {
             recurringTotal={recurringTotal}
             budgetSlices={budgetSlices}
             adjustSlice={adjustSlice}
+            customPockets={customPockets}
+            showAddPocket={showAddPocket}
+            setShowAddPocket={setShowAddPocket}
+            newPocket={newPocket}
+            setNewPocket={setNewPocket}
+            addCustomPocket={addCustomPocket}
+            deleteCustomPocket={deleteCustomPocket}
             S={S}
             lang={lang}
           />
@@ -1155,7 +1196,9 @@ const SLICE_META = {
 
 const isMonthEnd = new Date().getDate() >= 25
 
-function BudgetPie({ combinedIncome, recurringTotal, budgetSlices, adjustSlice, S, lang }) {
+const POCKET_PRESET_COLORS = ['#F49306','#E0858E','#A5BB1A','#6DB8BE','#ffcc44','#9b59b6']
+
+function BudgetPie({ combinedIncome, recurringTotal, budgetSlices, adjustSlice, customPockets, showAddPocket, setShowAddPocket, newPocket, setNewPocket, addCustomPocket, deleteCustomPocket, S, lang }) {
   const rentPct  = combinedIncome > 0 ? (RENT_AMOUNT  / combinedIncome) * 100 : 0
   const recPct   = combinedIncome > 0 ? (recurringTotal / combinedIncome) * 100 : 0
   const adjTotal = Object.values(budgetSlices).reduce((s, v) => s + v, 0)
@@ -1163,11 +1206,14 @@ function BudgetPie({ combinedIncome, recurringTotal, budgetSlices, adjustSlice, 
   const unallocated = Math.max(0, 100 - totalUsed)
   const overBudget = totalUsed > 100
 
-  // Build all slices in order
+  // Build all slices in order (built-in + custom pockets)
   const allSlices = [
     { key: 'rent',      pct: rentPct,  ...SLICE_META.rent },
     { key: 'recurring', pct: recPct,   ...SLICE_META.recurring },
-    ...Object.entries(budgetSlices).map(([k, v]) => ({ key: k, pct: v, ...SLICE_META[k] })),
+    ...Object.entries(budgetSlices).map(([k, v]) => {
+      const custom = customPockets.find(p => p.key === k)
+      return { key: k, pct: v, ...(custom ? { label: custom.name, color: custom.color, fixed: false } : SLICE_META[k] || { label: k, color: '#888', fixed: false }) }
+    }),
     { key: 'unalloc',   pct: unallocated, label: 'Free', color: '#1a2744', fixed: true },
   ]
 
@@ -1268,6 +1314,62 @@ function BudgetPie({ combinedIncome, recurringTotal, budgetSlices, adjustSlice, 
               )
             })}
           </div>
+
+          {/* Custom pockets */}
+          {customPockets.length > 0 && (
+            <div style={{ ...S.card, padding: 16 }}>
+              <div style={{ ...S.label, marginBottom: 10 }}>{lang === 'en' ? 'Custom pockets' : 'Poches personnalisées'}</div>
+              {customPockets.map(pocket => {
+                const pct = budgetSlices[pocket.key] || 0
+                const euros = Math.round(combinedIncome * pct / 100)
+                return (
+                  <div key={pocket.key} style={{ marginBottom: 14 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                      <div style={{ width: 10, height: 10, borderRadius: 2, background: pocket.color, flexShrink: 0 }} />
+                      <span style={{ flex: 1, fontSize: 13, color: 'var(--v-text)', fontWeight: 500 }}>{pocket.name}</span>
+                      {isMonthEnd && <span style={{ fontSize: 10, color: pocket.color, fontFamily: 'var(--font-mono)' }}>💸 Transfer reminder</span>}
+                      <span style={{ fontSize: 12, color: 'var(--v-muted)' }}>€{euros.toLocaleString()}</span>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <button onClick={() => adjustSlice(pocket.key, pct - 1)} style={{ ...S.btn, padding: '2px 8px', fontSize: 13, background: 'rgba(0,0,0,0.3)', color: 'var(--v-muted)', border: '1px solid var(--v-glass-border)' }}>−</button>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: pocket.color, minWidth: 38, textAlign: 'center', lineHeight: '24px' }}>{Math.round(pct)}%</span>
+                        <button onClick={() => adjustSlice(pocket.key, pct + 1)} style={{ ...S.btn, padding: '2px 8px', fontSize: 13, background: 'rgba(0,0,0,0.3)', color: 'var(--v-muted)', border: '1px solid var(--v-glass-border)' }}>+</button>
+                      </div>
+                      <button onClick={() => deleteCustomPocket(pocket.key)} style={{ background: 'rgba(255,78,78,0.1)', border: '1px solid rgba(255,78,78,0.3)', borderRadius: 4, padding: '2px 8px', color: '#ff4e4e', fontSize: 11, cursor: 'pointer', fontFamily: 'var(--font-mono)' }}>×</button>
+                    </div>
+                    <input type="range" min="0" max="50" value={Math.round(pct)} onChange={e => adjustSlice(pocket.key, parseInt(e.target.value))} style={{ width: '100%', accentColor: pocket.color }} />
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Add custom pocket */}
+          {showAddPocket ? (
+            <div style={{ ...S.card, padding: 16, borderColor: 'rgba(106,180,255,0.3)' }}>
+              <div style={{ ...S.label, marginBottom: 12 }}>New custom pocket</div>
+              <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+                <input style={{ ...S.input, flex: 2, minWidth: 120 }} placeholder="Pocket name" value={newPocket.name} onChange={e => setNewPocket(p => ({ ...p, name: e.target.value }))} autoFocus />
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+                  {POCKET_PRESET_COLORS.map(c => (
+                    <button key={c} onClick={() => setNewPocket(p => ({ ...p, color: c }))}
+                      style={{ width: 22, height: 22, borderRadius: '50%', background: c, border: newPocket.color === c ? '2px solid #fff' : '2px solid transparent', cursor: 'pointer', outline: newPocket.color === c ? '2px solid var(--v-accent)' : 'none' }} />
+                  ))}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input type="number" min="1" max="50" value={newPocket.pct} onChange={e => setNewPocket(p => ({ ...p, pct: parseInt(e.target.value) || 1 }))} style={{ ...S.input, width: 60 }} />
+                  <span style={{ color: 'var(--v-muted)', fontSize: 13 }}>%</span>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button style={S.btn} onClick={addCustomPocket}>{lang === 'en' ? 'Add pocket' : 'Ajouter'}</button>
+                <button style={{ ...S.btn, background: 'transparent', color: 'var(--v-muted)', border: '1px solid var(--v-glass-border)' }} onClick={() => setShowAddPocket(false)}>{lang === 'en' ? 'Cancel' : 'Annuler'}</button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setShowAddPocket(true)} style={{ ...S.btn, background: 'rgba(106,180,255,0.1)', border: '1px solid rgba(106,180,255,0.3)', color: 'var(--v-accent)', alignSelf: 'flex-start' }}>
+              ➕ {lang === 'en' ? 'Add custom pocket' : 'Ajouter une poche'}
+            </button>
+          )}
 
           {/* Summary */}
           <div style={{ ...S.card, padding: 16, borderColor: overBudget ? 'rgba(255,78,78,0.3)' : 'rgba(78,255,145,0.2)', background: overBudget ? 'rgba(255,78,78,0.04)' : 'rgba(78,255,145,0.04)' }}>
