@@ -8,7 +8,7 @@ const T = {
     title: 'MONEY TIME', back: '← Back', month: 'Month',
     piers_income: "Piers' Monthly Salary", canelle_income: "Canelle's Income (auto)",
     accounts: 'Accounts', add_expense: 'Add Expense', expenses: 'Expenses',
-    budget: 'Budget Planner', savings: 'Savings Goal', tips: 'Monthly Tips',
+    budget: 'Budget Planner', recurring: 'Recurring', tips: 'Monthly Tips',
     combined: 'Combined Income', food_spent: 'Food Spent', food_budget: 'Food Budget',
     can_spend: 'Available to Spend', save_target: 'Save Target', amount: 'Amount',
     category: 'Category', account: 'From Account', desc: 'Description',
@@ -21,12 +21,16 @@ const T = {
     delete: 'Delete', update_all: 'Update All Balances',
     balance_stale: 'Balance reminder: some account balances are 7+ days old.',
     update_now: 'Update Now', save_all: 'Save All', cancel: 'Cancel',
+    rec_name: 'Name', rec_day: 'Day of month', rec_total: 'Monthly recurring total',
+    rec_add: 'Add Recurring', rec_active: 'Active', rec_this_month: '📅 Recurring this month',
+    rec_not_logged: 'Not yet added this month',
+    rec_add_all: 'Add All to This Month', rec_dismiss: 'Dismiss',
   },
   fr: {
     title: 'MONEY TIME', back: '← Retour', month: 'Mois',
     piers_income: 'Salaire mensuel Piers', canelle_income: "Revenus Canelle (auto)",
     accounts: 'Comptes', add_expense: 'Ajouter une dépense', expenses: 'Dépenses',
-    budget: 'Planificateur', savings: "Objectif d'épargne", tips: 'Conseils du mois',
+    budget: 'Planificateur', recurring: 'Récurrents', tips: 'Conseils du mois',
     combined: 'Revenus combinés', food_spent: 'Dépenses alimentaires', food_budget: 'Budget alimentation',
     can_spend: 'Disponible', save_target: 'Objectif épargne', amount: 'Montant',
     category: 'Catégorie', account: 'Depuis le compte', desc: 'Description',
@@ -39,6 +43,10 @@ const T = {
     delete: 'Supprimer', update_all: 'Mettre à jour tous les soldes',
     balance_stale: "Rappel : certains soldes n'ont pas été mis à jour depuis 7+ jours.",
     update_now: 'Mettre à jour', save_all: 'Tout enregistrer', cancel: 'Annuler',
+    rec_name: 'Nom', rec_day: 'Jour du mois', rec_total: 'Total mensuel récurrent',
+    rec_add: 'Ajouter récurrent', rec_active: 'Actif', rec_this_month: '📅 Récurrents ce mois',
+    rec_not_logged: 'Pas encore ajoutés ce mois',
+    rec_add_all: 'Tout ajouter ce mois', rec_dismiss: 'Ignorer',
   }
 }
 
@@ -63,10 +71,12 @@ const TIPS = {
   ]
 }
 
+const TODAY_MONTH = format(new Date(), 'yyyy-MM')
+
 export default function MoneyTime({ onBack, lang, setLang }) {
   const t = T[lang]
   const [tab, setTab] = useState('overview')
-  const [currentMonth, setCurrentMonth] = useState(format(new Date(), 'yyyy-MM'))
+  const [currentMonth, setCurrentMonth] = useState(TODAY_MONTH)
   const [piersSalary, setPiersSalary] = useState(0)
   const [savingsPct, setSavingsPct] = useState(20)
   const [expenses, setExpenses] = useState([])
@@ -80,7 +90,16 @@ export default function MoneyTime({ onBack, lang, setLang }) {
   const [newExp, setNewExp] = useState({ amount: '', category: '', account: '', desc: '', date: format(new Date(), 'yyyy-MM-dd') })
   const [newSalary, setNewSalary] = useState('')
 
+  // Recurring state
+  const [recurring, setRecurring] = useState([])
+  const [newRec, setNewRec] = useState({ name: '', amount: '', category: '', account_id: '', day_of_month: 1 })
+  const [showRecBanner, setShowRecBanner] = useState(false)
+
   useEffect(() => { loadData() }, [currentMonth])
+
+  useEffect(() => {
+    loadRecurring()
+  }, [])
 
   async function loadData() {
     setLoading(true)
@@ -113,6 +132,18 @@ export default function MoneyTime({ onBack, lang, setLang }) {
       console.error(e)
     }
     setLoading(false)
+  }
+
+  async function loadRecurring() {
+    const { data } = await supabase.from('mt_recurring').select('*').order('created_at')
+    const recs = data || []
+    setRecurring(recs)
+    // Show banner for current month if active recurring exist and not dismissed
+    const dismissed = localStorage.getItem(`mt_rec_dismissed_${TODAY_MONTH}`)
+    const active = recs.filter(r => r.active)
+    if (active.length > 0 && !dismissed) {
+      setShowRecBanner(true)
+    }
   }
 
   async function saveSalary() {
@@ -182,6 +213,59 @@ export default function MoneyTime({ onBack, lang, setLang }) {
     setShowBalanceModal(false)
   }
 
+  // ── Recurring functions ──────────────────────────────────────
+
+  async function addRecurring() {
+    if (!newRec.name || !newRec.amount) return
+    const { data } = await supabase.from('mt_recurring').insert({
+      name: newRec.name,
+      amount: parseFloat(newRec.amount),
+      category: newRec.category || null,
+      account_id: newRec.account_id || null,
+      day_of_month: parseInt(newRec.day_of_month) || 1,
+      active: true,
+    }).select().single()
+    if (data) setRecurring(prev => [...prev, data])
+    setNewRec({ name: '', amount: '', category: '', account_id: '', day_of_month: 1 })
+  }
+
+  async function deleteRecurring(id) {
+    await supabase.from('mt_recurring').delete().eq('id', id)
+    setRecurring(prev => prev.filter(r => r.id !== id))
+  }
+
+  async function toggleRecurring(id, active) {
+    await supabase.from('mt_recurring').update({ active }).eq('id', id)
+    setRecurring(prev => prev.map(r => r.id === id ? { ...r, active } : r))
+  }
+
+  async function addAllRecurring() {
+    const active = recurring.filter(r => r.active)
+    if (active.length === 0) return
+    const inserted = await Promise.all(active.map(r => {
+      const day = Math.min(r.day_of_month || 1, 28)
+      const date = `${currentMonth}-${String(day).padStart(2, '0')}`
+      return supabase.from('mt_expenses').insert({
+        amount: r.amount,
+        category: r.category || 'Other',
+        account_id: r.account_id || null,
+        description: r.name,
+        date,
+      }).select().single().then(res => res.data)
+    }))
+    const newExps = inserted.filter(Boolean)
+    setExpenses(prev => [...newExps, ...prev])
+    localStorage.setItem(`mt_rec_dismissed_${TODAY_MONTH}`, '1')
+    setShowRecBanner(false)
+  }
+
+  function dismissRecBanner() {
+    localStorage.setItem(`mt_rec_dismissed_${TODAY_MONTH}`, '1')
+    setShowRecBanner(false)
+  }
+
+  // ── Derived values ───────────────────────────────────────────
+
   const sevenDaysMs = 7 * 24 * 60 * 60 * 1000
   const hasStaleBalance = ACCOUNTS.some(acc => {
     const updAt = balanceUpdatedAt[acc.id]
@@ -189,12 +273,19 @@ export default function MoneyTime({ onBack, lang, setLang }) {
     return (new Date() - new Date(updAt)) >= sevenDaysMs
   })
 
+  const activeRecurring = recurring.filter(r => r.active)
+  const recurringTotal = activeRecurring.reduce((s, r) => s + r.amount, 0)
+
   const combinedIncome = piersSalary + canelleIncome
   const foodExpenses = expenses.filter(e => e.category === 'Food & Groceries').reduce((s, e) => s + e.amount, 0)
   const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0)
   const savingsTarget = combinedIncome * (savingsPct / 100)
   const canSpend = combinedIncome - savingsTarget - RENT_AMOUNT
   const incomeRatio = combinedIncome > 0 ? { piers: piersSalary / combinedIncome, canelle: canelleIncome / combinedIncome } : { piers: 0.5, canelle: 0.5 }
+
+  // Detect if recurring have been logged this month (heuristic: any expense name matches a recurring name)
+  const recurringNames = new Set(activeRecurring.map(r => r.name.toLowerCase()))
+  const recurringLoggedThisMonth = expenses.some(e => e.description && recurringNames.has(e.description.toLowerCase()))
 
   const [chartData, setChartData] = useState([])
   useEffect(() => {
@@ -262,6 +353,21 @@ export default function MoneyTime({ onBack, lang, setLang }) {
         </div>
       </div>
 
+      {/* Recurring banner — shown once per month for current month */}
+      {showRecBanner && currentMonth === TODAY_MONTH && !loading && (
+        <div style={{ background: 'rgba(78,255,145,0.08)', borderBottom: '1px solid rgba(78,255,145,0.25)', padding: '12px 28px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+          <div style={{ fontSize: 12, color: '#4eff91' }}>
+            📅 {lang === 'en'
+              ? `You have ${activeRecurring.length} recurring expense${activeRecurring.length !== 1 ? 's' : ''} totalling €${Math.round(recurringTotal)} — add them to this month?`
+              : `Vous avez ${activeRecurring.length} dépense${activeRecurring.length !== 1 ? 's' : ''} récurrente${activeRecurring.length !== 1 ? 's' : ''} pour un total de €${Math.round(recurringTotal)} — les ajouter ce mois-ci ?`}
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+            <button style={{ ...S.btn, fontSize: 11, color: '#4eff91', border: '1px solid rgba(78,255,145,0.4)', background: 'rgba(78,255,145,0.1)' }} onClick={addAllRecurring}>{t.rec_add_all}</button>
+            <button style={{ ...S.btn, fontSize: 11, color: 'var(--v-muted)', background: 'transparent', border: '1px solid var(--v-glass-border)' }} onClick={dismissRecBanner}>{t.rec_dismiss}</button>
+          </div>
+        </div>
+      )}
+
       {/* Stale balance banner */}
       {hasStaleBalance && !loading && (
         <div style={{ background: 'rgba(255,204,68,0.08)', borderBottom: '1px solid rgba(255,204,68,0.25)', padding: '10px 28px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -275,7 +381,7 @@ export default function MoneyTime({ onBack, lang, setLang }) {
 
       {/* Nav tabs */}
       <div style={S.nav}>
-        {['overview', 'accounts', 'expenses', 'budget'].map(tab_id => (
+        {['overview', 'accounts', 'expenses', 'recurring', 'budget'].map(tab_id => (
           <button key={tab_id} style={S.navBtn(tab === tab_id)} onClick={() => setTab(tab_id)}>
             {t[tab_id] || tab_id.toUpperCase()}
           </button>
@@ -329,6 +435,29 @@ export default function MoneyTime({ onBack, lang, setLang }) {
                 </div>
               ))}
             </div>
+
+            {/* Recurring this month card */}
+            {activeRecurring.length > 0 && (
+              <div style={{ ...S.card, borderColor: recurringLoggedThisMonth ? 'rgba(78,255,145,0.2)' : 'rgba(255,204,68,0.25)', background: recurringLoggedThisMonth ? 'rgba(78,255,145,0.04)' : 'rgba(255,204,68,0.04)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ ...S.label, color: recurringLoggedThisMonth ? 'rgba(78,255,145,0.6)' : 'var(--v-amber)' }}>{t.rec_this_month}</div>
+                    <div style={{ fontFamily: 'var(--font-vista)', fontSize: 26, color: recurringLoggedThisMonth ? 'var(--v-green)' : 'var(--v-amber)', marginTop: 4 }}>
+                      €{Math.round(recurringTotal).toLocaleString()}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--v-muted)', marginTop: 6 }}>
+                      {activeRecurring.length} {lang === 'en' ? 'active recurring expenses' : 'dépenses récurrentes actives'}
+                      {!recurringLoggedThisMonth && currentMonth === TODAY_MONTH && (
+                        <span style={{ color: 'var(--v-amber)', marginLeft: 8 }}>· {t.rec_not_logged}</span>
+                      )}
+                    </div>
+                  </div>
+                  {!recurringLoggedThisMonth && currentMonth === TODAY_MONTH && (
+                    <button style={{ ...S.btn, fontSize: 11, color: 'var(--v-amber)', border: '1px solid rgba(255,204,68,0.4)', background: 'rgba(255,204,68,0.1)' }} onClick={addAllRecurring}>{t.rec_add_all}</button>
+                  )}
+                </div>
+              </div>
+            )}
 
             <div style={S.card}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
@@ -470,6 +599,97 @@ export default function MoneyTime({ onBack, lang, setLang }) {
           </div>
         )}
 
+        {/* ── RECURRING TAB ── */}
+        {tab === 'recurring' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }} className="page-enter">
+
+            {/* Total card */}
+            <div style={{ ...S.card, borderColor: 'rgba(78,255,145,0.2)', background: 'rgba(78,255,145,0.04)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ ...S.label, color: 'rgba(78,255,145,0.6)' }}>{t.rec_total}</div>
+                  <div style={{ fontFamily: 'var(--font-vista)', fontSize: 32, color: 'var(--v-green)', marginTop: 4 }}>
+                    €{Math.round(recurringTotal).toLocaleString()}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--v-muted)', marginTop: 6 }}>
+                    {activeRecurring.length} {lang === 'en' ? 'active' : 'actifs'} / {recurring.length} {lang === 'en' ? 'total' : 'total'}
+                  </div>
+                </div>
+                <button style={{ ...S.btn, fontSize: 11, color: '#4eff91', border: '1px solid rgba(78,255,145,0.4)', background: 'rgba(78,255,145,0.1)' }} onClick={addAllRecurring}>{t.rec_add_all}</button>
+              </div>
+            </div>
+
+            {/* Add form */}
+            <div style={S.card}>
+              <div style={{ ...S.label, marginBottom: 12 }}>+ {t.rec_add}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', gap: 10, alignItems: 'end' }}>
+                <div>
+                  <div style={{ ...S.label, marginBottom: 4 }}>{t.rec_name}</div>
+                  <input style={S.input} placeholder={lang === 'en' ? 'e.g. Netflix' : 'ex. Netflix'} value={newRec.name} onChange={e => setNewRec(p => ({ ...p, name: e.target.value }))}/>
+                </div>
+                <div>
+                  <div style={{ ...S.label, marginBottom: 4 }}>{t.amount}</div>
+                  <input style={S.input} type="number" placeholder="€" value={newRec.amount} onChange={e => setNewRec(p => ({ ...p, amount: e.target.value }))}/>
+                </div>
+                <div>
+                  <div style={{ ...S.label, marginBottom: 4 }}>{t.category}</div>
+                  <select style={S.input} value={newRec.category} onChange={e => setNewRec(p => ({ ...p, category: e.target.value }))}>
+                    <option value="">--</option>
+                    {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div style={{ ...S.label, marginBottom: 4 }}>{t.account}</div>
+                  <select style={S.input} value={newRec.account_id} onChange={e => setNewRec(p => ({ ...p, account_id: e.target.value }))}>
+                    <option value="">--</option>
+                    {ACCOUNTS.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div style={{ ...S.label, marginBottom: 4 }}>{t.rec_day}</div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input style={S.input} type="number" min="1" max="28" value={newRec.day_of_month} onChange={e => setNewRec(p => ({ ...p, day_of_month: e.target.value }))}/>
+                    <button style={S.btn} onClick={addRecurring}>{t.add}</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Recurring list */}
+            <div style={S.card}>
+              {recurring.length === 0 ? (
+                <div style={{ color: 'var(--v-muted)', fontSize: 13, textAlign: 'center', padding: 24 }}>
+                  {lang === 'en' ? 'No recurring expenses yet' : 'Aucune dépense récurrente'}
+                </div>
+              ) : recurring.map(r => (
+                <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid rgba(106,180,255,0.08)', fontSize: 13, opacity: r.active ? 1 : 0.45 }}>
+                  <div style={{ display: 'flex', gap: 16, alignItems: 'center', flex: 1 }}>
+                    <div style={{ color: 'var(--v-text)', fontWeight: 600 }}>{r.name}</div>
+                    {r.category && <div style={{ fontSize: 10, padding: '2px 8px', borderRadius: 3, background: 'rgba(106,180,255,0.1)', color: 'var(--v-accent)' }}>{r.category}</div>}
+                    {r.account_id && <div style={{ fontSize: 11, color: 'var(--v-muted)' }}>{ACCOUNTS.find(a => a.id === r.account_id)?.name || r.account_id}</div>}
+                    <div style={{ fontSize: 11, color: 'var(--v-muted)' }}>
+                      {lang === 'en' ? `day ${r.day_of_month}` : `jour ${r.day_of_month}`}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ color: 'var(--v-amber)', fontFamily: 'var(--font-vista)', fontSize: 18 }}>€{r.amount}</div>
+                    {/* Active toggle */}
+                    <button
+                      onClick={() => toggleRecurring(r.id, !r.active)}
+                      title={r.active ? (lang === 'en' ? 'Deactivate' : 'Désactiver') : (lang === 'en' ? 'Activate' : 'Activer')}
+                      style={{ background: r.active ? 'rgba(78,255,145,0.15)' : 'rgba(0,0,0,0.3)', border: `1px solid ${r.active ? 'rgba(78,255,145,0.4)' : 'var(--v-glass-border)'}`, borderRadius: 4, padding: '3px 10px', color: r.active ? '#4eff91' : 'var(--v-muted)', fontSize: 11, cursor: 'pointer', fontFamily: 'var(--font-mono)' }}
+                    >{r.active ? '● ON' : '○ OFF'}</button>
+                    <button
+                      onClick={() => deleteRecurring(r.id)}
+                      style={{ background: 'rgba(255,78,78,0.1)', border: '1px solid rgba(255,78,78,0.3)', borderRadius: 4, padding: '3px 8px', color: 'var(--v-red)', fontSize: 11, cursor: 'pointer', fontFamily: 'var(--font-mono)' }}
+                    >✕</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* ── BUDGET TAB ── */}
         {tab === 'budget' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }} className="page-enter">
@@ -513,6 +733,7 @@ export default function MoneyTime({ onBack, lang, setLang }) {
                     { label: 'Rent (Wise Piers)', val: RENT_AMOUNT },
                     { label: lang === 'en' ? 'Food Budget' : 'Budget alimentation', val: FOOD_BUDGET },
                     { label: lang === 'en' ? 'Savings target' : 'Objectif épargne', val: Math.round(savingsTarget) },
+                    { label: lang === 'en' ? 'Recurring expenses' : 'Dépenses récurrentes', val: Math.round(recurringTotal) },
                   ].map(({ label, val }) => (
                     <div key={label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
                       <span style={{ color: 'var(--v-muted)' }}>{label}</span>
@@ -523,7 +744,7 @@ export default function MoneyTime({ onBack, lang, setLang }) {
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
                     <span style={{ color: 'var(--v-text)', fontWeight: 700 }}>{lang === 'en' ? 'Remaining' : 'Restant'}</span>
                     <span style={{ color: 'var(--v-green)', fontFamily: 'var(--font-vista)', fontSize: 18 }}>
-                      €{Math.round(combinedIncome - RENT_AMOUNT - FOOD_BUDGET - savingsTarget)}
+                      €{Math.round(combinedIncome - RENT_AMOUNT - FOOD_BUDGET - savingsTarget - recurringTotal)}
                     </span>
                   </div>
                 </div>

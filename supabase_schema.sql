@@ -62,3 +62,17 @@ create policy "allow all" on mt_salaries  for all using (true) with check (true)
 create policy "allow all" on mt_expenses  for all using (true) with check (true);
 create policy "allow all" on mt_balances  for all using (true) with check (true);
 create policy "allow all" on cv_income    for all using (true) with check (true);
+
+-- Recurring expenses
+create table if not exists mt_recurring (
+  id           bigserial primary key,
+  name         text not null,
+  amount       numeric not null,
+  category     text,
+  account_id   text,
+  day_of_month integer default 1,
+  active       boolean default true,
+  created_at   timestamptz default now()
+);
+alter table mt_recurring enable row level security;
+create policy "allow all" on mt_recurring for all using (true) with check (true);
