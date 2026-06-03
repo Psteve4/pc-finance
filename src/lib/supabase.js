@@ -18,6 +18,7 @@ export const ACCOUNTS = [
   { id: 'mono_piers',    name: 'Monobanque – Piers',    owner: 'piers',   type: 'manual',  color: '#FFD700' },
   { id: 'mono_canelle',  name: 'Monobanque – Canelle',  owner: 'canelle', type: 'manual',  color: '#FFD700' },
   { id: 'laposte',       name: 'La Poste – Canelle',    owner: 'canelle', type: 'manual',  color: '#F7A600' },
+  { id: 'wise_assets',   name: 'Wise Assets – MSCI World', owner: 'piers', type: 'investment', color: '#4eff91' },
 ]
 
 export const EXPENSE_CATEGORIES = [

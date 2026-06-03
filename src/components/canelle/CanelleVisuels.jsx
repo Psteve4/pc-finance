@@ -63,7 +63,7 @@ const T = {
   }
 }
 
-export default function CanelleVisuels({ onBack, lang }) {
+export default function CanelleVisuels({ onBack, lang, setLang }) {
   const t = T[lang]
   const [tab, setTab] = useState('dashboard')
   const [income, setIncome] = useState([])
@@ -164,6 +164,17 @@ export default function CanelleVisuels({ onBack, lang }) {
         <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
           <div style={{ fontSize: 13, color: 'var(--c-muted)' }}>
             CA {selectedYear}: <span style={{ color: ytdGross > THRESHOLD_2024 ? 'var(--c-accent)' : '#4eff91', fontWeight: 700 }}>€{Math.round(ytdGross).toLocaleString()}</span>
+          </div>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {['en', 'fr'].map(l => (
+              <button key={l} onClick={() => setLang(l)} style={{
+                padding: '6px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                background: lang === l ? 'var(--c-accent)' : 'transparent',
+                color: lang === l ? '#fff' : 'var(--c-muted)',
+                border: '1px solid var(--c-border)', textTransform: 'uppercase',
+                cursor: 'pointer', fontFamily: 'var(--font-modern)'
+              }}>{l}</button>
+            ))}
           </div>
           <select value={selectedYear} onChange={e => setSelectedYear(parseInt(e.target.value))} style={{ ...S.input, width: 100 }}>
             {[2023, 2024, 2025].map(y => <option key={y} value={y}>{y}</option>)}

@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase, ACCOUNTS, EXPENSE_CATEGORIES, FOOD_BUDGET, RENT_AMOUNT } from '../../lib/supabase.js'
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import { format, startOfMonth, endOfMonth, subMonths, parseISO } from 'date-fns'
 
 const T = {
@@ -17,7 +17,10 @@ const T = {
     food_warn: '⚠ Food budget almost used!', food_over: '🚨 Food budget exceeded!',
     savings_pct: 'Savings target (% of income)', investment: 'Investment split',
     rent: 'Rent (from Wise Piers)', invest_piers: "Piers' Investment",
-    invest_canelle: "Canelle's Investment", date: 'Date'
+    invest_canelle: "Canelle's Investment", date: 'Date',
+    delete: 'Delete', update_all: 'Update All Balances',
+    balance_stale: 'Balance reminder: some account balances are 7+ days old.',
+    update_now: 'Update Now', save_all: 'Save All', cancel: 'Cancel',
   },
   fr: {
     title: 'MONEY TIME', back: '← Retour', month: 'Mois',
@@ -32,7 +35,10 @@ const T = {
     food_warn: '⚠ Budget alimentation presque épuisé !', food_over: '🚨 Budget alimentation dépassé !',
     savings_pct: 'Objectif épargne (% des revenus)', investment: 'Répartition investissement',
     rent: 'Loyer (depuis Wise Piers)', invest_piers: 'Investissement Piers',
-    invest_canelle: 'Investissement Canelle', date: 'Date'
+    invest_canelle: 'Investissement Canelle', date: 'Date',
+    delete: 'Supprimer', update_all: 'Mettre à jour tous les soldes',
+    balance_stale: "Rappel : certains soldes n'ont pas été mis à jour depuis 7+ jours.",
+    update_now: 'Mettre à jour', save_all: 'Tout enregistrer', cancel: 'Annuler',
   }
 }
 
@@ -57,7 +63,7 @@ const TIPS = {
   ]
 }
 
-export default function MoneyTime({ onBack, lang }) {
+export default function MoneyTime({ onBack, lang, setLang }) {
   const t = T[lang]
   const [tab, setTab] = useState('overview')
   const [currentMonth, setCurrentMonth] = useState(format(new Date(), 'yyyy-MM'))
@@ -65,11 +71,12 @@ export default function MoneyTime({ onBack, lang }) {
   const [savingsPct, setSavingsPct] = useState(20)
   const [expenses, setExpenses] = useState([])
   const [balances, setBalances] = useState({})
+  const [balanceUpdatedAt, setBalanceUpdatedAt] = useState({})
   const [canelleIncome, setCanelleIncome] = useState(0)
   const [loading, setLoading] = useState(true)
   const [tipIdx] = useState(() => new Date().getDate() % TIPS.en.length)
-
-  // New expense form
+  const [showBalanceModal, setShowBalanceModal] = useState(false)
+  const [modalInputs, setModalInputs] = useState({})
   const [newExp, setNewExp] = useState({ amount: '', category: '', account: '', desc: '', date: format(new Date(), 'yyyy-MM-dd') })
   const [newSalary, setNewSalary] = useState('')
 
@@ -78,25 +85,26 @@ export default function MoneyTime({ onBack, lang }) {
   async function loadData() {
     setLoading(true)
     try {
-      // Load salary for this month
       const { data: salaryData } = await supabase.from('mt_salaries')
         .select('*').eq('month', currentMonth).eq('person', 'piers').maybeSingle()
       if (salaryData) { setPiersSalary(salaryData.amount); setNewSalary(salaryData.amount.toString()) }
 
-      // Load expenses
       const start = startOfMonth(parseISO(currentMonth + '-01')).toISOString().slice(0, 10)
       const end = endOfMonth(parseISO(currentMonth + '-01')).toISOString().slice(0, 10)
       const { data: expData } = await supabase.from('mt_expenses')
         .select('*').gte('date', start).lte('date', end).order('date', { ascending: false })
       setExpenses(expData || [])
 
-      // Load balances
       const { data: balData } = await supabase.from('mt_balances').select('*')
       const balMap = {}
-      ;(balData || []).forEach(b => { balMap[b.account_id] = b.balance })
+      const updAtMap = {}
+      ;(balData || []).forEach(b => {
+        balMap[b.account_id] = b.balance
+        updAtMap[b.account_id] = b.updated_at
+      })
       setBalances(balMap)
+      setBalanceUpdatedAt(updAtMap)
 
-      // Load Canelle income for this month (from her side)
       const { data: cIncome } = await supabase.from('cv_income')
         .select('amount_after_urssaf').gte('date', start).lte('date', end)
       const total = (cIncome || []).reduce((s, r) => s + (r.amount_after_urssaf || 0), 0)
@@ -123,12 +131,51 @@ export default function MoneyTime({ onBack, lang }) {
     setNewExp({ amount: '', category: '', account: '', desc: '', date: format(new Date(), 'yyyy-MM-dd') })
   }
 
-  async function updateBalance(accountId, val) {
-    await supabase.from('mt_balances').upsert({ account_id: accountId, balance: parseFloat(val) || 0, updated_at: new Date().toISOString() }, { onConflict: 'account_id' })
-    setBalances(prev => ({ ...prev, [accountId]: parseFloat(val) || 0 }))
+  async function deleteExpense(id) {
+    await supabase.from('mt_expenses').delete().eq('id', id)
+    setExpenses(prev => prev.filter(e => e.id !== id))
   }
 
-  // Calculations
+  async function updateBalance(accountId, val) {
+    const now = new Date().toISOString()
+    await supabase.from('mt_balances').upsert({ account_id: accountId, balance: parseFloat(val) || 0, updated_at: now }, { onConflict: 'account_id' })
+    setBalances(prev => ({ ...prev, [accountId]: parseFloat(val) || 0 }))
+    setBalanceUpdatedAt(prev => ({ ...prev, [accountId]: now }))
+  }
+
+  function openBalanceModal() {
+    const inputs = {}
+    ACCOUNTS.forEach(acc => { inputs[acc.id] = (balances[acc.id] || 0).toString() })
+    setModalInputs(inputs)
+    setShowBalanceModal(true)
+  }
+
+  async function saveAllBalances() {
+    const now = new Date().toISOString()
+    await Promise.all(ACCOUNTS.map(acc =>
+      supabase.from('mt_balances').upsert(
+        { account_id: acc.id, balance: parseFloat(modalInputs[acc.id]) || 0, updated_at: now },
+        { onConflict: 'account_id' }
+      )
+    ))
+    const newBal = {}
+    const newUpdAt = {}
+    ACCOUNTS.forEach(acc => {
+      newBal[acc.id] = parseFloat(modalInputs[acc.id]) || 0
+      newUpdAt[acc.id] = now
+    })
+    setBalances(newBal)
+    setBalanceUpdatedAt(newUpdAt)
+    setShowBalanceModal(false)
+  }
+
+  const sevenDaysMs = 7 * 24 * 60 * 60 * 1000
+  const hasStaleBalance = ACCOUNTS.some(acc => {
+    const updAt = balanceUpdatedAt[acc.id]
+    if (!updAt) return true
+    return (new Date() - new Date(updAt)) >= sevenDaysMs
+  })
+
   const combinedIncome = piersSalary + canelleIncome
   const foodExpenses = expenses.filter(e => e.category === 'Food & Groceries').reduce((s, e) => s + e.amount, 0)
   const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0)
@@ -136,7 +183,6 @@ export default function MoneyTime({ onBack, lang }) {
   const canSpend = combinedIncome - savingsTarget - RENT_AMOUNT
   const incomeRatio = combinedIncome > 0 ? { piers: piersSalary / combinedIncome, canelle: canelleIncome / combinedIncome } : { piers: 0.5, canelle: 0.5 }
 
-  // Chart data - last 6 months
   const [chartData, setChartData] = useState([])
   useEffect(() => {
     async function loadChart() {
@@ -156,7 +202,7 @@ export default function MoneyTime({ onBack, lang }) {
     loadChart()
   }, [currentMonth])
 
-  const S = { // styles
+  const S = {
     container: { minHeight: '100vh', background: 'var(--v-bg)', color: 'var(--v-text)', fontFamily: 'var(--font-mono)' },
     nav: { display: 'flex', alignItems: 'center', gap: 0, background: 'rgba(0,0,0,0.3)', borderBottom: '1px solid var(--v-glass-border)', padding: '0 24px' },
     navBtn: (active) => ({
@@ -186,13 +232,37 @@ export default function MoneyTime({ onBack, lang }) {
             {t.title}
           </div>
         </div>
-        <input type="month" value={currentMonth} onChange={e => setCurrentMonth(e.target.value)}
-          style={{ ...S.input, width: 160 }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {['en', 'fr'].map(l => (
+              <button key={l} onClick={() => setLang(l)} style={{
+                padding: '4px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600,
+                background: lang === l ? 'rgba(106,180,255,0.2)' : 'transparent',
+                color: lang === l ? 'var(--v-accent)' : 'var(--v-muted)',
+                border: '1px solid rgba(106,180,255,0.3)', textTransform: 'uppercase',
+                cursor: 'pointer', fontFamily: 'var(--font-mono)'
+              }}>{l}</button>
+            ))}
+          </div>
+          <input type="month" value={currentMonth} onChange={e => setCurrentMonth(e.target.value)}
+            style={{ ...S.input, width: 160 }} />
+        </div>
       </div>
+
+      {/* Stale balance banner */}
+      {hasStaleBalance && !loading && (
+        <div style={{ background: 'rgba(255,204,68,0.08)', borderBottom: '1px solid rgba(255,204,68,0.25)', padding: '10px 28px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ fontSize: 12, color: 'var(--v-amber)' }}>⏰ {t.balance_stale}</div>
+          <button
+            style={{ ...S.btn, fontSize: 11, color: 'var(--v-amber)', border: '1px solid rgba(255,204,68,0.4)', background: 'rgba(255,204,68,0.1)' }}
+            onClick={openBalanceModal}
+          >{t.update_now}</button>
+        </div>
+      )}
 
       {/* Nav tabs */}
       <div style={S.nav}>
-        {['overview','accounts','expenses','budget'].map(tab_id => (
+        {['overview', 'accounts', 'expenses', 'budget'].map(tab_id => (
           <button key={tab_id} style={S.navBtn(tab === tab_id)} onClick={() => setTab(tab_id)}>
             {t[tab_id] || tab_id.toUpperCase()}
           </button>
@@ -204,10 +274,7 @@ export default function MoneyTime({ onBack, lang }) {
         {/* ── OVERVIEW TAB ── */}
         {tab === 'overview' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }} className="page-enter">
-
-            {/* Income row */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
-              {/* Piers salary input */}
               <div style={S.card}>
                 <div style={S.label}>{t.piers_income}</div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
@@ -217,7 +284,6 @@ export default function MoneyTime({ onBack, lang }) {
                 <div style={{ ...S.big, marginTop: 8 }}>€{Math.round(piersSalary).toLocaleString()}</div>
               </div>
 
-              {/* Canelle income */}
               <div style={S.card}>
                 <div style={S.label}>{t.canelle_income}</div>
                 <div style={{ ...S.big, marginTop: 12 }}>€{Math.round(canelleIncome).toLocaleString()}</div>
@@ -226,7 +292,6 @@ export default function MoneyTime({ onBack, lang }) {
                 </div>
               </div>
 
-              {/* Combined */}
               <div style={{ ...S.card, background: 'rgba(106,180,255,0.08)', borderColor: 'rgba(106,180,255,0.3)' }}>
                 <div style={S.label}>{t.combined}</div>
                 <div style={{ fontFamily: 'var(--font-vista)', fontSize: 40, color: 'var(--v-green)', letterSpacing: '0.05em', marginTop: 4 }}>
@@ -238,7 +303,6 @@ export default function MoneyTime({ onBack, lang }) {
               </div>
             </div>
 
-            {/* Budget overview */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 16 }}>
               {[
                 { label: t.can_spend, val: `€${Math.round(canSpend).toLocaleString()}`, color: 'var(--v-green)' },
@@ -253,7 +317,6 @@ export default function MoneyTime({ onBack, lang }) {
               ))}
             </div>
 
-            {/* Food tracker */}
             <div style={S.card}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
                 <div style={S.label}>{t.food_spent} / {t.food_budget}</div>
@@ -273,7 +336,6 @@ export default function MoneyTime({ onBack, lang }) {
               </div>}
             </div>
 
-            {/* Chart */}
             {chartData.length > 0 && (
               <div style={S.card}>
                 <div style={{ ...S.label, marginBottom: 16 }}>{lang === 'en' ? '6-Month Overview' : 'Aperçu 6 mois'}</div>
@@ -309,7 +371,6 @@ export default function MoneyTime({ onBack, lang }) {
               </div>
             )}
 
-            {/* Tips */}
             <div style={{ ...S.card, borderColor: 'rgba(78,255,145,0.2)', background: 'rgba(78,255,145,0.04)' }}>
               <div style={{ ...S.label, color: 'rgba(78,255,145,0.6)' }}>💡 {t.tips}</div>
               <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.8)', marginTop: 8, lineHeight: 1.6 }}>
@@ -321,17 +382,21 @@ export default function MoneyTime({ onBack, lang }) {
 
         {/* ── ACCOUNTS TAB ── */}
         {tab === 'accounts' && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }} className="page-enter">
-            {ACCOUNTS.map(acc => (
-              <AccountCard key={acc.id} acc={acc} balance={balances[acc.id] || 0} onUpdate={updateBalance} S={S} t={t} lang={lang}/>
-            ))}
+          <div className="page-enter">
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+              <button style={S.btn} onClick={openBalanceModal}>{t.update_all}</button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+              {ACCOUNTS.map(acc => (
+                <AccountCard key={acc.id} acc={acc} balance={balances[acc.id] || 0} onUpdate={updateBalance} S={S} t={t} lang={lang}/>
+              ))}
+            </div>
           </div>
         )}
 
         {/* ── EXPENSES TAB ── */}
         {tab === 'expenses' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }} className="page-enter">
-            {/* Add expense */}
             <div style={S.card}>
               <div style={{ ...S.label, marginBottom: 12 }}>{t.add_expense}</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 2fr', gap: 10, alignItems: 'end' }}>
@@ -364,7 +429,6 @@ export default function MoneyTime({ onBack, lang }) {
               </div>
             </div>
 
-            {/* Expense list */}
             <div style={S.card}>
               <div style={{ ...S.label, marginBottom: 12 }}>{t.expenses} — {currentMonth}</div>
               {expenses.length === 0 ? (
@@ -378,12 +442,17 @@ export default function MoneyTime({ onBack, lang }) {
                     <div style={{ color: 'var(--v-text)' }}>{e.description || e.category}</div>
                     <div style={{ fontSize: 10, padding: '2px 8px', borderRadius: 3, background: 'rgba(106,180,255,0.1)', color: 'var(--v-accent)' }}>{e.category}</div>
                   </div>
-                  <div style={{ color: 'var(--v-red)', fontFamily: 'var(--font-vista)', fontSize: 18 }}>-€{e.amount}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ color: 'var(--v-red)', fontFamily: 'var(--font-vista)', fontSize: 18 }}>-€{e.amount}</div>
+                    <button
+                      onClick={() => deleteExpense(e.id)}
+                      style={{ background: 'rgba(255,78,78,0.1)', border: '1px solid rgba(255,78,78,0.3)', borderRadius: 4, padding: '3px 8px', color: 'var(--v-red)', fontSize: 11, cursor: 'pointer', fontFamily: 'var(--font-mono)' }}
+                    >✕</button>
+                  </div>
                 </div>
               ))}
             </div>
 
-            {/* Category breakdown */}
             <CategoryBreakdown expenses={expenses} S={S} lang={lang}/>
           </div>
         )}
@@ -450,6 +519,32 @@ export default function MoneyTime({ onBack, lang }) {
           </div>
         )}
       </div>
+
+      {/* Quick balance update modal */}
+      {showBalanceModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ ...S.card, width: 480, maxWidth: '90vw', maxHeight: '80vh', overflow: 'auto' }}>
+            <div style={{ ...S.label, marginBottom: 20, fontSize: 12 }}>{t.update_all}</div>
+            {ACCOUNTS.map(acc => (
+              <div key={acc.id} style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12 }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: acc.color, flexShrink: 0 }}/>
+                <span style={{ fontSize: 13, color: 'var(--v-text)', flex: 1 }}>{acc.name}</span>
+                <input
+                  style={{ ...S.input, width: 130 }}
+                  type="number"
+                  value={modalInputs[acc.id] || ''}
+                  onChange={e => setModalInputs(prev => ({ ...prev, [acc.id]: e.target.value }))}
+                  placeholder="€ 0"
+                />
+              </div>
+            ))}
+            <div style={{ display: 'flex', gap: 8, marginTop: 20, justifyContent: 'flex-end' }}>
+              <button style={{ ...S.btn, color: 'var(--v-muted)', background: 'transparent', border: '1px solid var(--v-glass-border)' }} onClick={() => setShowBalanceModal(false)}>{t.cancel}</button>
+              <button style={S.btn} onClick={saveAllBalances}>{t.save_all}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -467,11 +562,11 @@ function AccountCard({ acc, balance, onUpdate, S, t, lang }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
         <div>
           <div style={{ fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--v-muted)' }}>
-            {acc.owner === 'piers' ? 'PIERS' : 'CANELLE'} · {isWise ? 'WISE' : 'MANUAL'}
+            {acc.owner === 'piers' ? 'PIERS' : 'CANELLE'} · {acc.type.toUpperCase()}
           </div>
           <div style={{ fontSize: 15, color: 'var(--v-text)', marginTop: 4, fontWeight: 600 }}>{acc.name}</div>
         </div>
-        <div style={{ width: 8, height: 8, borderRadius: '50%', background: isWise ? '#00b9ff' : 'var(--v-amber)', marginTop: 4 }}/>
+        <div style={{ width: 8, height: 8, borderRadius: '50%', background: acc.color, marginTop: 4 }}/>
       </div>
 
       <div style={{ fontFamily: 'var(--font-vista)', fontSize: 32, color: balance >= 0 ? 'var(--v-green)' : 'var(--v-red)', marginBottom: 16 }}>
@@ -480,7 +575,7 @@ function AccountCard({ acc, balance, onUpdate, S, t, lang }) {
 
       {isWise && (
         <div style={{ fontSize: 11, color: 'rgba(0,185,255,0.5)', marginBottom: 12 }}>
-          {lang === 'en' ? '⚡ Connect Wise API for live balance' : '⚡ Connectez l\'API Wise pour solde en temps réel'}
+          {lang === 'en' ? '⚡ Connect Wise API for live balance' : "⚡ Connectez l'API Wise pour solde en temps réel"}
         </div>
       )}
 
@@ -502,7 +597,7 @@ function CategoryBreakdown({ expenses, S, lang }) {
   expenses.forEach(e => { cats[e.category] = (cats[e.category] || 0) + e.amount })
   const sorted = Object.entries(cats).sort((a, b) => b[1] - a[1])
   const total = Object.values(cats).reduce((s, v) => s + v, 0)
-  const colors = ['#6ab4ff','#4eff91','#ffcc44','#ff4e4e','#ff88cc','#88ffcc','#ffaa44']
+  const colors = ['#6ab4ff', '#4eff91', '#ffcc44', '#ff4e4e', '#ff88cc', '#88ffcc', '#ffaa44']
 
   return (
     <div style={S.card}>
