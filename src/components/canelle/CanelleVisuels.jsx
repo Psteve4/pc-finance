@@ -155,8 +155,9 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
           <button onClick={onBack} style={{ ...S.btn, background: 'transparent', border: '1px solid var(--c-border)', color: 'var(--c-muted)', padding: '8px 14px', fontSize: 12 }}>{t.back}</button>
           <div>
-            <div style={{ fontFamily: 'Bebas Neue, cursive', fontSize: 28, letterSpacing: '0.1em', lineHeight: 1 }}>
-              {t.title} <span style={{ color: 'var(--c-accent)' }}>{t.sub}</span>
+            <div style={{ lineHeight: 1 }}>
+              <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 26, fontWeight: 700, color: '#f0f0f0', letterSpacing: '-0.01em' }}>Canelle</span>
+              <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 26, fontWeight: 700, color: '#e8001c', letterSpacing: '-0.01em' }}>.visuels</span>
             </div>
             <div style={{ fontSize: 11, color: 'var(--c-muted)', letterSpacing: '0.15em' }}>BUSINESS TRACKER</div>
           </div>
