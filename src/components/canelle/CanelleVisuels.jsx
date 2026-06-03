@@ -45,7 +45,12 @@ const T = {
     year_total: 'YTD Turnover', threshold: '2025 Threshold',
     tips: 'Business Tips', chart_title: 'Monthly Revenue',
     edit_splits: 'Edit Splits', piers_pct: "% to Piers' Wise",
-    invest_pct: '% reinvest company'
+    invest_pct: '% reinvest company',
+    wishlist: 'Wishlist', wish_add: 'Add to Wishlist', wish_name: 'Item name',
+    wish_price: 'Price (€)', wish_url: 'Product URL', wish_cat: 'Category',
+    wish_priority: 'Priority', wish_total: 'Total wishlist', wish_funded: 'Total funded',
+    wish_months: 'Months to top item', wish_sort: 'Sort by',
+    wish_alloc: '% of net income → wishlist fund',
   },
   fr: {
     title: 'CANELLE', sub: 'VISUELS',
@@ -59,7 +64,12 @@ const T = {
     year_total: 'CA annuel', threshold: 'Seuil 2025',
     tips: 'Conseils pro', chart_title: 'Revenus mensuels',
     edit_splits: 'Modifier la répartition', piers_pct: "% vers Wise Piers",
-    invest_pct: '% réinvesti entreprise'
+    invest_pct: '% réinvesti entreprise',
+    wishlist: 'Liste de souhaits', wish_add: 'Ajouter à la liste', wish_name: "Nom de l'article",
+    wish_price: 'Prix (€)', wish_url: 'URL produit', wish_cat: 'Catégorie',
+    wish_priority: 'Priorité', wish_total: 'Total liste', wish_funded: 'Total financé',
+    wish_months: 'Mois pour l\'article top', wish_sort: 'Trier par',
+    wish_alloc: '% du net → fonds liste',
   }
 }
 
@@ -75,6 +85,10 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
   const [tipIdx] = useState(() => new Date().getDate() % TIPS.en.length)
   const [showWelcomeBanner, setShowWelcomeBanner] = useState(false)
   const addIncomeRef = useRef(null)
+  const [wishlist, setWishlist] = useState([])
+  const [newWishItem, setNewWishItem] = useState({ name: '', price: '', url: '', category: 'gear', priority: 'soon' })
+  const [wishlistPct, setWishlistPct] = useState(() => parseInt(localStorage.getItem('cv_wishlist_pct') || '5'))
+  const [wishlistSort, setWishlistSort] = useState('priority')
 
   // New income form
   const [form, setForm] = useState({ client: '', amount: '', date: format(new Date(), 'yyyy-MM-dd'), cat: 'bnc_services', desc: '' })
@@ -86,6 +100,8 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
     supabase.from('cv_income').select('id', { count: 'exact', head: true })
       .then(({ count }) => { if ((count || 0) === 0) setShowWelcomeBanner(true) })
   }, [])
+
+  useEffect(() => { loadWishlist() }, [])
 
   async function loadIncome() {
     setLoading(true)
@@ -107,6 +123,32 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
     setShowWelcomeBanner(false)
   }
 
+  async function loadWishlist() {
+    const { data } = await supabase.from('cv_wishlist').select('*').order('created_at')
+    setWishlist(data || [])
+  }
+
+  async function addWishItem() {
+    if (!newWishItem.name || !newWishItem.price) return
+    const { data } = await supabase.from('cv_wishlist').insert({
+      name: newWishItem.name, price: parseFloat(newWishItem.price),
+      url: newWishItem.url || null, category: newWishItem.category,
+      priority: newWishItem.priority, funded: 0
+    }).select().single()
+    if (data) setWishlist(prev => [...prev, data])
+    setNewWishItem({ name: '', price: '', url: '', category: 'gear', priority: 'soon' })
+  }
+
+  async function deleteWishItem(id) {
+    await supabase.from('cv_wishlist').delete().eq('id', id)
+    setWishlist(prev => prev.filter(w => w.id !== id))
+  }
+
+  async function markWishPurchased(id) {
+    await supabase.from('cv_wishlist').update({ purchased: true }).eq('id', id)
+    setWishlist(prev => prev.map(w => w.id === id ? { ...w, purchased: true } : w))
+  }
+
   async function addIncome() {
     if (!form.amount || !form.date) return
     const gross = parseFloat(form.amount)
@@ -126,6 +168,20 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
 
     if (data) setIncome(prev => [data, ...prev])
     setForm({ client: '', amount: '', date: format(new Date(), 'yyyy-MM-dd'), cat: 'bnc_services', desc: '' })
+
+    // Auto-fund wishlist from income allocation
+    if (wishlistPct > 0) {
+      const alloc = net * (wishlistPct / 100)
+      const PO = { dream: 0, soon: 1, someday: 2 }
+      const topItem = [...wishlist]
+        .filter(w => !w.purchased && (w.funded || 0) < w.price)
+        .sort((a, b) => (PO[a.priority] ?? 9) - (PO[b.priority] ?? 9))[0]
+      if (topItem) {
+        const newFunded = Math.min((topItem.funded || 0) + alloc, topItem.price)
+        await supabase.from('cv_wishlist').update({ funded: newFunded }).eq('id', topItem.id)
+        setWishlist(prev => prev.map(w => w.id === topItem.id ? { ...w, funded: newFunded } : w))
+      }
+    }
   }
 
   // Calculations
@@ -150,6 +206,28 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
     const gross = monthIncome.reduce((s, r) => s + (r.amount_gross || 0), 0)
     const net = monthIncome.reduce((s, r) => s + (r.amount_after_urssaf || 0), 0)
     return { month: m, gross: Math.round(gross), net: Math.round(net) }
+  })
+
+  // Wishlist derived
+  const PRIORITY_ORDER = { dream: 0, soon: 1, someday: 2 }
+  const activeWish = wishlist.filter(w => !w.purchased)
+  const wishTotal = activeWish.reduce((s, w) => s + w.price, 0)
+  const wishFunded = activeWish.reduce((s, w) => s + (w.funded || 0), 0)
+  const readyToBuy = activeWish.filter(w => (w.funded || 0) >= w.price)
+  const currentMonthIdx = new Date().getMonth() + 1
+  const monthlyAvgNet = currentMonthIdx > 0 ? ytdNet / currentMonthIdx : 0
+  const wishMonthlyContrib = monthlyAvgNet * (wishlistPct / 100)
+  const topUnfunded = [...activeWish]
+    .sort((a, b) => (PRIORITY_ORDER[a.priority] ?? 9) - (PRIORITY_ORDER[b.priority] ?? 9))
+    .find(w => (w.funded || 0) < w.price)
+  const monthsToTop = topUnfunded && wishMonthlyContrib > 0
+    ? Math.ceil((topUnfunded.price - (topUnfunded.funded || 0)) / wishMonthlyContrib)
+    : null
+  const sortedWishlist = [...activeWish].sort((a, b) => {
+    if (wishlistSort === 'priority') return (PRIORITY_ORDER[a.priority] ?? 9) - (PRIORITY_ORDER[b.priority] ?? 9)
+    if (wishlistSort === 'price') return b.price - a.price
+    if (wishlistSort === 'funded') return ((b.funded || 0) / b.price) - ((a.funded || 0) / a.price)
+    return 0
   })
 
   const S = {
@@ -208,7 +286,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
 
       {/* Nav */}
       <div style={{ display: 'flex', background: 'rgba(0,0,0,0.3)', borderBottom: '1px solid var(--c-border)', padding: '0 32px' }}>
-        {['dashboard', 'history', 'splits'].map(tab_id => (
+        {['dashboard', 'history', 'splits', 'wishlist'].map(tab_id => (
           <button key={tab_id} style={S.navBtn(tab === tab_id)} onClick={() => setTab(tab_id)}>
             {t[tab_id] || tab_id}
           </button>
@@ -478,6 +556,183 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
             </div>
           </div>
         )}
+
+        {/* ── WISHLIST ── */}
+        {tab === 'wishlist' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }} className="page-enter">
+
+            {/* Ready-to-buy banners */}
+            {readyToBuy.map(item => (
+              <div key={item.id} style={{ background: 'rgba(78,255,145,0.08)', border: '1px solid rgba(78,255,145,0.4)', borderRadius: 8, padding: '12px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ color: '#4eff91', fontSize: 14, fontWeight: 600 }}>
+                  🎉 {item.name} — {lang === 'en' ? 'ready to buy!' : 'prêt à acheter !'}
+                </div>
+                {item.url && <a href={item.url} target="_blank" rel="noopener noreferrer" style={{ ...S.btn, textDecoration: 'none', fontSize: 12, padding: '6px 14px' }}>{lang === 'en' ? 'View →' : 'Voir →'}</a>}
+              </div>
+            ))}
+
+            {/* Allocation slider */}
+            <div style={S.card}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <div style={S.label}>{t.wish_alloc}</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--c-accent)' }}>{wishlistPct}%</div>
+              </div>
+              <input type="range" min="0" max="20" value={wishlistPct} onChange={e => { const v = parseInt(e.target.value); setWishlistPct(v); localStorage.setItem('cv_wishlist_pct', v) }} style={{ width: '100%', accentColor: 'var(--c-accent)' }}/>
+              <div style={{ fontSize: 12, color: 'var(--c-muted)', marginTop: 8 }}>
+                {lang === 'en'
+                  ? `= €${Math.round(1000 * wishlistPct / 100)} from every €1,000 net → top priority item`
+                  : `= ${Math.round(1000 * wishlistPct / 100)}€ de chaque 1 000€ net → article prioritaire`}
+              </div>
+            </div>
+
+            {/* Stats */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+              {[
+                { label: t.wish_total, val: `€${Math.round(wishTotal).toLocaleString()}`, color: '#fff' },
+                { label: t.wish_funded, val: `€${Math.round(wishFunded).toLocaleString()}`, color: '#4eff91' },
+                { label: t.wish_months, val: monthsToTop !== null ? `${monthsToTop}` : '—', color: '#ffcc44', suffix: monthsToTop !== null ? (lang === 'en' ? ' mo' : ' mois') : '' },
+              ].map(({ label, val, color, suffix }) => (
+                <div key={label} style={S.card}>
+                  <div style={S.label}>{label}</div>
+                  <div style={{ fontSize: 26, fontWeight: 700, color, marginTop: 8 }}>{val}<span style={{ fontSize: 14, fontWeight: 400, color: 'var(--c-muted)' }}>{suffix}</span></div>
+                </div>
+              ))}
+            </div>
+
+            {/* Add form */}
+            <div style={{ ...S.card, borderColor: 'rgba(232,0,28,0.2)' }}>
+              <div style={{ ...S.label, color: 'rgba(232,0,28,0.6)', marginBottom: 16 }}>+ {t.wish_add}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
+                <div>
+                  <div style={S.label}>{t.wish_name}</div>
+                  <input style={S.input} value={newWishItem.name} onChange={e => setNewWishItem(p => ({ ...p, name: e.target.value }))} placeholder={lang === 'en' ? 'e.g. Sony lens' : 'ex. Objectif Sony'}/>
+                </div>
+                <div>
+                  <div style={S.label}>{t.wish_price}</div>
+                  <input style={S.input} type="number" value={newWishItem.price} onChange={e => setNewWishItem(p => ({ ...p, price: e.target.value }))} placeholder="€"/>
+                </div>
+                <div>
+                  <div style={S.label}>{t.wish_cat}</div>
+                  <select style={S.input} value={newWishItem.category} onChange={e => setNewWishItem(p => ({ ...p, category: e.target.value }))}>
+                    <option value="gear">🔧 Gear</option>
+                    <option value="software">💻 Software</option>
+                    <option value="other">📦 Other</option>
+                  </select>
+                </div>
+                <div>
+                  <div style={S.label}>{t.wish_priority}</div>
+                  <select style={S.input} value={newWishItem.priority} onChange={e => setNewWishItem(p => ({ ...p, priority: e.target.value }))}>
+                    <option value="dream">⭐ Dream</option>
+                    <option value="soon">🔜 Soon</option>
+                    <option value="someday">☁️ Someday</option>
+                  </select>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={S.label}>{t.wish_url}</div>
+                  <input style={S.input} value={newWishItem.url} onChange={e => setNewWishItem(p => ({ ...p, url: e.target.value }))} placeholder="https://..."/>
+                </div>
+                <button style={{ ...S.btn, alignSelf: 'flex-end', whiteSpace: 'nowrap' }} onClick={addWishItem}>{t.add}</button>
+              </div>
+            </div>
+
+            {/* Sort controls */}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <span style={{ fontSize: 11, color: 'var(--c-muted)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>{t.wish_sort}:</span>
+              {['priority', 'price', 'funded'].map(s => (
+                <button key={s} onClick={() => setWishlistSort(s)} style={{
+                  padding: '4px 12px', borderRadius: 4, fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font-modern)',
+                  background: wishlistSort === s ? 'var(--c-accent)' : 'transparent',
+                  color: wishlistSort === s ? '#fff' : 'var(--c-muted)',
+                  border: '1px solid var(--c-border)'
+                }}>{s}</button>
+              ))}
+            </div>
+
+            {/* Item cards */}
+            {sortedWishlist.length === 0 ? (
+              <div style={{ ...S.card, textAlign: 'center', color: 'var(--c-muted)', fontSize: 14, padding: 40 }}>
+                {lang === 'en' ? 'No wishlist items yet — add something above!' : 'Liste vide — ajoutez un article ci-dessus !'}
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
+                {sortedWishlist.map(item => (
+                  <CVWishCard key={item.id} item={item} onMarkBought={markWishPurchased} onDelete={deleteWishItem} S={S} lang={lang}/>
+                ))}
+              </div>
+            )}
+
+            {/* Purchased items */}
+            {wishlist.some(w => w.purchased) && (
+              <div style={S.card}>
+                <div style={{ ...S.label, marginBottom: 12 }}>✓ {lang === 'en' ? 'Purchased' : 'Achetés'}</div>
+                {wishlist.filter(w => w.purchased).map(item => (
+                  <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--c-border)', fontSize: 13, opacity: 0.5 }}>
+                    <span style={{ textDecoration: 'line-through', color: 'var(--c-muted)' }}>{item.name}</span>
+                    <span>€{item.price.toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+const CV_PRIORITY_COLORS = { dream: '#e8001c', soon: '#ffcc44', someday: '#6ab4ff' }
+const CV_PRIORITY_ICONS  = { dream: '⭐', soon: '🔜', someday: '☁️' }
+const CV_CAT_ICONS       = { gear: '🔧', software: '💻', other: '📦' }
+
+function CVWishCard({ item, onMarkBought, onDelete, S, lang }) {
+  const funded = item.funded || 0
+  const fundedPct = Math.min(100, (funded / item.price) * 100)
+  const isReady = funded >= item.price
+  const pc = CV_PRIORITY_COLORS[item.priority] || '#aaa'
+
+  return (
+    <div style={{ ...S.card, borderColor: isReady ? 'rgba(78,255,145,0.5)' : 'var(--c-border)', background: isReady ? 'rgba(78,255,145,0.04)' : 'var(--c-surface)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+            <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 3, background: `${pc}22`, color: pc, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+              {CV_PRIORITY_ICONS[item.priority]} {item.priority}
+            </span>
+            {item.category && <span style={{ fontSize: 10, color: 'var(--c-muted)' }}>{CV_CAT_ICONS[item.category]} {item.category}</span>}
+          </div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#f0f0f0' }}>{item.name}</div>
+          {item.url && (
+            <a href={item.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: 'var(--c-accent)', textDecoration: 'none', marginTop: 4, display: 'inline-block' }}>
+              🔗 {lang === 'en' ? 'View product' : 'Voir le produit'}
+            </a>
+          )}
+        </div>
+        <div style={{ fontSize: 22, fontWeight: 700, color: '#fff', marginLeft: 12, flexShrink: 0 }}>€{item.price.toLocaleString()}</div>
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--c-muted)', marginBottom: 5 }}>
+          <span>€{Math.round(funded).toLocaleString()} {lang === 'en' ? 'funded' : 'financé'}</span>
+          <span>{Math.round(fundedPct)}%</span>
+        </div>
+        <div style={{ height: 6, background: 'var(--c-surface2)', borderRadius: 3, overflow: 'hidden' }}>
+          <div style={{ height: '100%', width: `${fundedPct}%`, background: isReady ? '#4eff91' : 'var(--c-accent)', borderRadius: 3, transition: 'width 0.4s' }}/>
+        </div>
+      </div>
+
+      {isReady && (
+        <div style={{ fontSize: 12, color: '#4eff91', marginBottom: 10, fontWeight: 600 }}>
+          🎉 {lang === 'en' ? 'You can buy this now!' : 'Vous pouvez l\'acheter maintenant !'}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={() => onMarkBought(item.id)} style={{ ...S.btn, flex: 1, fontSize: 12, padding: '8px', background: isReady ? '#4eff91' : 'transparent', color: isReady ? '#000' : 'var(--c-muted)', border: `1px solid ${isReady ? '#4eff91' : 'var(--c-border)'}` }}>
+          {lang === 'en' ? 'Mark as bought ✓' : 'Marquer acheté ✓'}
+        </button>
+        <button onClick={() => onDelete(item.id)} style={{ background: 'rgba(255,78,78,0.1)', border: '1px solid rgba(255,78,78,0.3)', borderRadius: 6, padding: '8px 10px', color: 'rgba(255,100,100,0.9)', fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font-modern)' }}>✕</button>
       </div>
     </div>
   )

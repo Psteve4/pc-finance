@@ -29,3 +29,5 @@ export const EXPENSE_CATEGORIES = [
 
 export const RENT_AMOUNT = 800
 export const FOOD_BUDGET = 400
+
+// Wishlist tables: cv_wishlist (Canelle), mt_wishlist (shared / Money Time)

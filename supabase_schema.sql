@@ -76,3 +76,33 @@ create table if not exists mt_recurring (
 );
 alter table mt_recurring enable row level security;
 create policy "allow all" on mt_recurring for all using (true) with check (true);
+
+-- Canelle wishlist
+create table if not exists cv_wishlist (
+  id          bigserial primary key,
+  name        text not null,
+  price       numeric not null,
+  url         text,
+  category    text,
+  priority    text default 'normal',
+  funded      numeric default 0,
+  purchased   boolean default false,
+  created_at  timestamptz default now()
+);
+alter table cv_wishlist enable row level security;
+create policy "allow all" on cv_wishlist for all using (true) with check (true);
+
+-- Shared wishlist (Money Time)
+create table if not exists mt_wishlist (
+  id          bigserial primary key,
+  name        text not null,
+  price       numeric not null,
+  url         text,
+  category    text,
+  owner       text default 'both',
+  funded      numeric default 0,
+  purchased   boolean default false,
+  created_at  timestamptz default now()
+);
+alter table mt_wishlist enable row level security;
+create policy "allow all" on mt_wishlist for all using (true) with check (true);

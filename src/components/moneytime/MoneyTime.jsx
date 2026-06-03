@@ -25,6 +25,10 @@ const T = {
     rec_add: 'Add Recurring', rec_active: 'Active', rec_this_month: '📅 Recurring this month',
     rec_not_logged: 'Not yet added this month',
     rec_add_all: 'Add All to This Month', rec_dismiss: 'Dismiss',
+    wishlist: 'Wishlist', wish_add: 'Add Item', wish_name: 'Item',
+    wish_price: 'Price', wish_url: 'URL', wish_owner: 'For',
+    wish_fund: 'Add Funds', wish_bought: 'Bought ✓',
+    wish_total: 'Total wishlist', wish_funded: 'Total funded', wish_sort: 'Sort by',
   },
   fr: {
     title: 'MONEY TIME', back: '← Retour', month: 'Mois',
@@ -47,6 +51,10 @@ const T = {
     rec_add: 'Ajouter récurrent', rec_active: 'Actif', rec_this_month: '📅 Récurrents ce mois',
     rec_not_logged: 'Pas encore ajoutés ce mois',
     rec_add_all: 'Tout ajouter ce mois', rec_dismiss: 'Ignorer',
+    wishlist: 'Liste de souhaits', wish_add: 'Ajouter', wish_name: 'Article',
+    wish_price: 'Prix', wish_url: 'URL', wish_owner: 'Pour',
+    wish_fund: 'Financer', wish_bought: 'Acheté ✓',
+    wish_total: 'Total liste', wish_funded: 'Total financé', wish_sort: 'Trier par',
   }
 }
 
@@ -87,6 +95,9 @@ export default function MoneyTime({ onBack, lang, setLang }) {
   const [tipIdx] = useState(() => new Date().getDate() % TIPS.en.length)
   const [showBalanceModal, setShowBalanceModal] = useState(false)
   const [modalInputs, setModalInputs] = useState({})
+  const [wishlistMT, setWishlistMT] = useState([])
+  const [newWishMT, setNewWishMT] = useState({ name: '', price: '', url: '', category: '', owner: 'both' })
+  const [wishlistMTSort, setWishlistMTSort] = useState('owner')
   const [newExp, setNewExp] = useState({ amount: '', category: '', account: '', desc: '', date: format(new Date(), 'yyyy-MM-dd') })
   const [newSalary, setNewSalary] = useState('')
 
@@ -99,6 +110,7 @@ export default function MoneyTime({ onBack, lang, setLang }) {
 
   useEffect(() => {
     loadRecurring()
+    loadWishlistMT()
   }, [])
 
   async function loadData() {
@@ -259,12 +271,58 @@ export default function MoneyTime({ onBack, lang, setLang }) {
     setShowRecBanner(false)
   }
 
+  async function loadWishlistMT() {
+    const { data } = await supabase.from('mt_wishlist').select('*').order('created_at')
+    setWishlistMT(data || [])
+  }
+
+  async function addWishMT() {
+    if (!newWishMT.name || !newWishMT.price) return
+    const { data } = await supabase.from('mt_wishlist').insert({
+      name: newWishMT.name, price: parseFloat(newWishMT.price),
+      url: newWishMT.url || null, category: newWishMT.category || null,
+      owner: newWishMT.owner, funded: 0
+    }).select().single()
+    if (data) setWishlistMT(prev => [...prev, data])
+    setNewWishMT({ name: '', price: '', url: '', category: '', owner: 'both' })
+  }
+
+  async function deleteWishMT(id) {
+    await supabase.from('mt_wishlist').delete().eq('id', id)
+    setWishlistMT(prev => prev.filter(w => w.id !== id))
+  }
+
+  async function markWishMTPurchased(id) {
+    await supabase.from('mt_wishlist').update({ purchased: true }).eq('id', id)
+    setWishlistMT(prev => prev.map(w => w.id === id ? { ...w, purchased: true } : w))
+  }
+
+  async function fundWishMT(id, amount) {
+    const item = wishlistMT.find(w => w.id === id)
+    if (!item) return
+    const newFunded = Math.min((item.funded || 0) + (parseFloat(amount) || 0), item.price)
+    await supabase.from('mt_wishlist').update({ funded: newFunded }).eq('id', id)
+    setWishlistMT(prev => prev.map(w => w.id === id ? { ...w, funded: newFunded } : w))
+  }
+
   function dismissRecBanner() {
     localStorage.setItem(`mt_rec_dismissed_${TODAY_MONTH}`, '1')
     setShowRecBanner(false)
   }
 
   // ── Derived values ───────────────────────────────────────────
+
+  // MT Wishlist derived
+  const activeWishMT = wishlistMT.filter(w => !w.purchased)
+  const wishMTTotal = activeWishMT.reduce((s, w) => s + w.price, 0)
+  const wishMTFunded = activeWishMT.reduce((s, w) => s + (w.funded || 0), 0)
+  const readyToBuyMT = activeWishMT.filter(w => (w.funded || 0) >= w.price)
+  const sortedWishMT = [...activeWishMT].sort((a, b) => {
+    if (wishlistMTSort === 'owner') return a.owner.localeCompare(b.owner)
+    if (wishlistMTSort === 'price') return b.price - a.price
+    if (wishlistMTSort === 'funded') return ((b.funded || 0) / b.price) - ((a.funded || 0) / a.price)
+    return 0
+  })
 
   const sevenDaysMs = 7 * 24 * 60 * 60 * 1000
   const hasStaleBalance = ACCOUNTS.some(acc => {
@@ -381,7 +439,7 @@ export default function MoneyTime({ onBack, lang, setLang }) {
 
       {/* Nav tabs */}
       <div style={S.nav}>
-        {['overview', 'accounts', 'expenses', 'recurring', 'budget'].map(tab_id => (
+        {['overview', 'accounts', 'expenses', 'recurring', 'budget', 'wishlist'].map(tab_id => (
           <button key={tab_id} style={S.navBtn(tab === tab_id)} onClick={() => setTab(tab_id)}>
             {t[tab_id] || tab_id.toUpperCase()}
           </button>
@@ -752,6 +810,107 @@ export default function MoneyTime({ onBack, lang, setLang }) {
             </div>
           </div>
         )}
+
+        {/* ── WISHLIST TAB ── */}
+        {tab === 'wishlist' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }} className="page-enter">
+
+            {/* Ready-to-buy banners */}
+            {readyToBuyMT.map(item => (
+              <div key={item.id} style={{ background: 'rgba(78,255,145,0.08)', border: '1px solid rgba(78,255,145,0.4)', borderRadius: 6, padding: '12px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ color: 'var(--v-green)', fontSize: 13, fontWeight: 600 }}>
+                  🎉 {item.name} — {lang === 'en' ? 'ready to buy!' : 'prêt à acheter !'}
+                </div>
+                {item.url && <a href={item.url} target="_blank" rel="noopener noreferrer" style={{ ...S.btn, textDecoration: 'none', fontSize: 11, padding: '5px 12px' }}>{lang === 'en' ? 'View →' : 'Voir →'}</a>}
+              </div>
+            ))}
+
+            {/* Stats */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              <div style={S.card}>
+                <div style={S.label}>{t.wish_total}</div>
+                <div style={{ fontFamily: 'var(--font-vista)', fontSize: 28, color: 'var(--v-text)', marginTop: 6 }}>€{Math.round(wishMTTotal).toLocaleString()}</div>
+              </div>
+              <div style={S.card}>
+                <div style={S.label}>{t.wish_funded}</div>
+                <div style={{ fontFamily: 'var(--font-vista)', fontSize: 28, color: 'var(--v-green)', marginTop: 6 }}>€{Math.round(wishMTFunded).toLocaleString()}</div>
+              </div>
+            </div>
+
+            {/* Add form */}
+            <div style={S.card}>
+              <div style={{ ...S.label, marginBottom: 12 }}>+ {t.wish_add}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
+                <div>
+                  <div style={{ ...S.label, marginBottom: 4 }}>{t.wish_name}</div>
+                  <input style={S.input} placeholder={lang === 'en' ? 'e.g. Weekend in Paris' : 'ex. Week-end à Paris'} value={newWishMT.name} onChange={e => setNewWishMT(p => ({ ...p, name: e.target.value }))}/>
+                </div>
+                <div>
+                  <div style={{ ...S.label, marginBottom: 4 }}>{t.wish_price}</div>
+                  <input style={S.input} type="number" placeholder="€" value={newWishMT.price} onChange={e => setNewWishMT(p => ({ ...p, price: e.target.value }))}/>
+                </div>
+                <div>
+                  <div style={{ ...S.label, marginBottom: 4 }}>{t.wish_owner}</div>
+                  <select style={S.input} value={newWishMT.owner} onChange={e => setNewWishMT(p => ({ ...p, owner: e.target.value }))}>
+                    <option value="both">👫 Both</option>
+                    <option value="piers">👨 Piers</option>
+                    <option value="canelle">👩 Canelle</option>
+                  </select>
+                </div>
+                <div>
+                  <div style={{ ...S.label, marginBottom: 4 }}>{t.category}</div>
+                  <input style={S.input} placeholder={lang === 'en' ? 'e.g. Holiday' : 'ex. Vacances'} value={newWishMT.category} onChange={e => setNewWishMT(p => ({ ...p, category: e.target.value }))}/>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ ...S.label, marginBottom: 4 }}>{t.wish_url}</div>
+                  <input style={S.input} placeholder="https://..." value={newWishMT.url} onChange={e => setNewWishMT(p => ({ ...p, url: e.target.value }))}/>
+                </div>
+                <button style={{ ...S.btn, alignSelf: 'flex-end' }} onClick={addWishMT}>{t.add}</button>
+              </div>
+            </div>
+
+            {/* Sort controls */}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <span style={{ fontSize: 10, color: 'var(--v-muted)', letterSpacing: '0.15em', textTransform: 'uppercase' }}>{t.wish_sort}:</span>
+              {['owner', 'price', 'funded'].map(s => (
+                <button key={s} onClick={() => setWishlistMTSort(s)} style={{
+                  padding: '4px 10px', borderRadius: 4, fontSize: 11, cursor: 'pointer', fontFamily: 'var(--font-mono)',
+                  background: wishlistMTSort === s ? 'rgba(106,180,255,0.2)' : 'transparent',
+                  color: wishlistMTSort === s ? 'var(--v-accent)' : 'var(--v-muted)',
+                  border: '1px solid rgba(106,180,255,0.3)'
+                }}>{s}</button>
+              ))}
+            </div>
+
+            {/* Item cards */}
+            {sortedWishMT.length === 0 ? (
+              <div style={{ ...S.card, textAlign: 'center', color: 'var(--v-muted)', fontSize: 13, padding: 32 }}>
+                {lang === 'en' ? 'No items yet — add a shared goal above!' : 'Liste vide — ajoutez un objectif commun !'}
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
+                {sortedWishMT.map(item => (
+                  <MTWishCard key={item.id} item={item} onMarkBought={markWishMTPurchased} onDelete={deleteWishMT} onFund={fundWishMT} S={S} lang={lang}/>
+                ))}
+              </div>
+            )}
+
+            {/* Purchased items */}
+            {wishlistMT.some(w => w.purchased) && (
+              <div style={S.card}>
+                <div style={{ ...S.label, marginBottom: 12 }}>✓ {lang === 'en' ? 'Purchased' : 'Achetés'}</div>
+                {wishlistMT.filter(w => w.purchased).map(item => (
+                  <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(106,180,255,0.08)', fontSize: 13, opacity: 0.45 }}>
+                    <span style={{ textDecoration: 'line-through', color: 'var(--v-muted)' }}>{item.name}</span>
+                    <span>€{item.price.toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Quick balance update modal */}
@@ -847,6 +1006,73 @@ function CategoryBreakdown({ expenses, S, lang }) {
           </div>
         </div>
       ))}
+    </div>
+  )
+}
+
+const MT_OWNER_COLORS = { piers: '#6ab4ff', canelle: '#e8001c', both: '#4eff91' }
+const MT_OWNER_LABELS = { piers: '👨 PIERS', canelle: '👩 CANELLE', both: '👫 BOTH' }
+
+function MTWishCard({ item, onMarkBought, onDelete, onFund, S, lang }) {
+  const [funding, setFunding] = useState(false)
+  const [fundAmt, setFundAmt] = useState('')
+
+  const funded = item.funded || 0
+  const fundedPct = Math.min(100, (funded / item.price) * 100)
+  const isReady = funded >= item.price
+  const oc = MT_OWNER_COLORS[item.owner] || '#aaa'
+
+  return (
+    <div style={{ ...S.card, borderColor: isReady ? 'rgba(78,255,145,0.4)' : 'var(--v-glass-border)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+            <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 3, background: `${oc}22`, color: oc, fontWeight: 700, letterSpacing: '0.08em' }}>
+              {MT_OWNER_LABELS[item.owner] || item.owner}
+            </span>
+            {item.category && <span style={{ fontSize: 10, color: 'var(--v-muted)' }}>{item.category}</span>}
+          </div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--v-text)' }}>{item.name}</div>
+          {item.url && (
+            <a href={item.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: 'var(--v-accent)', textDecoration: 'none', marginTop: 4, display: 'inline-block' }}>
+              🔗 {lang === 'en' ? 'View' : 'Voir'}
+            </a>
+          )}
+        </div>
+        <div style={{ fontFamily: 'var(--font-vista)', fontSize: 20, color: 'var(--v-text)', marginLeft: 12, flexShrink: 0 }}>€{item.price.toLocaleString()}</div>
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--v-muted)', marginBottom: 5 }}>
+          <span>€{Math.round(funded).toLocaleString()} {lang === 'en' ? 'funded' : 'financé'}</span>
+          <span>{Math.round(fundedPct)}%</span>
+        </div>
+        <div style={{ height: 6, background: 'rgba(0,0,0,0.4)', borderRadius: 3, overflow: 'hidden' }}>
+          <div style={{ height: '100%', width: `${fundedPct}%`, background: isReady ? 'var(--v-green)' : 'var(--v-accent)', borderRadius: 3, transition: 'width 0.4s' }}/>
+        </div>
+      </div>
+
+      {isReady && (
+        <div style={{ fontSize: 12, color: 'var(--v-green)', marginBottom: 10, fontWeight: 600 }}>
+          🎉 {lang === 'en' ? 'You can buy this now!' : 'Vous pouvez acheter !'}
+        </div>
+      )}
+
+      {funding ? (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 0 }}>
+          <input style={S.input} type="number" value={fundAmt} onChange={e => setFundAmt(e.target.value)} placeholder="€" autoFocus/>
+          <button style={S.btn} onClick={() => { onFund(item.id, fundAmt); setFundAmt(''); setFunding(false) }}>✓</button>
+          <button style={{ ...S.btn, color: 'var(--v-muted)', background: 'transparent', border: '1px solid var(--v-glass-border)' }} onClick={() => setFunding(false)}>✕</button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => setFunding(true)} style={{ ...S.btn, flex: 1, fontSize: 11, padding: '7px' }}>
+            + {lang === 'en' ? 'Add funds' : 'Financer'}
+          </button>
+          <button onClick={() => onMarkBought(item.id)} style={{ ...S.btn, fontSize: 11, padding: '7px 10px', background: isReady ? 'rgba(78,255,145,0.15)' : 'transparent', color: isReady ? 'var(--v-green)' : 'var(--v-muted)', border: `1px solid ${isReady ? 'rgba(78,255,145,0.4)' : 'var(--v-glass-border)'}` }}>✓</button>
+          <button onClick={() => onDelete(item.id)} style={{ background: 'rgba(255,78,78,0.1)', border: '1px solid rgba(255,78,78,0.3)', borderRadius: 4, padding: '7px 10px', color: 'var(--v-red)', fontSize: 11, cursor: 'pointer', fontFamily: 'var(--font-mono)' }}>✕</button>
+        </div>
+      )}
     </div>
   )
 }
