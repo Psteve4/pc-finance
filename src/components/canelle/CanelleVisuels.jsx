@@ -5,7 +5,7 @@ import { format } from 'date-fns'
 
 // ── Palette ───────────────────────────────────────────────────────────
 const P = {
-  bg: '#F5CAE8', surface: '#fff', surface2: '#fde8f5', border: '#E0858E',
+  bg: '#FDF6EC', surface: '#fffef5', surface2: '#FFF0F5', border: 'transparent',
   orange: '#F49306', pink: '#E0858E', green: '#A5BB1A',
   blue: '#6DB8BE', red: '#E63A26', gold: '#C9B749',
   text: '#1a0a00', muted: '#7a4a3a',
@@ -467,7 +467,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
 
   // ── Styles ─────────────────────────────────────────────────────────
   const S = {
-    container: { minHeight:'100vh', background:P.bg, color:P.text, fontFamily:'var(--font-modern)' },
+    container: { minHeight:'100vh', backgroundColor:'#FDF6EC', backgroundImage:'radial-gradient(rgba(224,133,142,0.12) 1px, transparent 1px)', backgroundSize:'24px 24px', color:P.text, fontFamily:"'Patrick Hand', sans-serif" },
     card: { background:P.surface, border:`1px solid ${P.border}`, borderRadius:10, padding:24 },
     label: { fontSize:11, letterSpacing:'0.12em', textTransform:'uppercase', color:P.muted, marginBottom:6 },
     input: { background:P.surface2, border:`1px solid ${P.border}`, borderRadius:6, padding:'10px 14px', color:P.text, fontSize:13, width:'100%', fontFamily:'var(--font-modern)' },

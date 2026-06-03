@@ -3,8 +3,9 @@
 :root {
   --font-vista: 'VT323', monospace;
   --font-mono: 'Share Tech Mono', monospace;
-  --font-modern: 'Space Grotesk', sans-serif;
+  --font-modern: 'Patrick Hand', sans-serif;
   --font-display: 'Bebas Neue', cursive;
+  --font-hand: 'Caveat', cursive;
 }
 
 body { font-family: var(--font-modern); background: #0a0a0a; color: #fff; min-height: 100vh; }
@@ -29,17 +30,30 @@ body { font-family: var(--font-modern); background: #0a0a0a; color: #fff; min-he
 
 /* ── CANELLE THEME ──────────────────────────────────── */
 .canelle {
-  --c-bg: #F5CAE8;
-  --c-surface: #fff;
-  --c-surface2: #fde8f5;
-  --c-border: #E0858E;
+  --c-bg: #FDF6EC;
+  --c-surface: #fffef5;
+  --c-surface2: #FFF0F5;
+  --c-border: transparent;
   --c-accent: #F49306;
-  --c-accent2: #F9B346;
+  --c-accent2: #E0858E;
   --c-gold: #C9B749;
   --c-text: #1a0a00;
   --c-muted: #7a4a3a;
-  font-family: var(--font-modern);
+  font-family: 'Patrick Hand', sans-serif;
 }
+
+/* Dot background for canelle */
+.canelle-bg {
+  background-color: #FDF6EC;
+  background-image: radial-gradient(#E0858E 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-attachment: fixed;
+}
+
+/* Scrapbook helpers */
+.btn-scrap { transition: transform 0.12s ease; }
+.btn-scrap:hover { transform: translate(-1px, -1px) !important; }
+.input-scrap:focus { background: #fff0e8 !important; outline: none !important; }
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 6px; }
