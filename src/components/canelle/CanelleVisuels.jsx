@@ -130,12 +130,20 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
 
   async function addWishItem() {
     if (!newWishItem.name || !newWishItem.price) return
-    const { data } = await supabase.from('cv_wishlist').insert({
-      name: newWishItem.name, price: parseFloat(newWishItem.price),
-      url: newWishItem.url || null, category: newWishItem.category,
-      priority: newWishItem.priority, funded: 0
+    const { data, error } = await supabase.from('cv_wishlist').insert({
+      name: newWishItem.name,
+      price: parseFloat(newWishItem.price),
+      url: newWishItem.url || null,
+      category: newWishItem.category || null,
+      priority: newWishItem.priority || 'soon',
+      funded: 0,
+      purchased: false,
     }).select().single()
-    if (data) setWishlist(prev => [...prev, data])
+    if (error) {
+      console.error('cv_wishlist insert error:', error)
+      return
+    }
+    setWishlist(prev => [...prev, data])
     setNewWishItem({ name: '', price: '', url: '', category: 'gear', priority: 'soon' })
   }
 
@@ -207,6 +215,18 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
     const net = monthIncome.reduce((s, r) => s + (r.amount_after_urssaf || 0), 0)
     return { month: m, gross: Math.round(gross), net: Math.round(net) }
   })
+
+  // URSSAF forecast
+  const monthsWithData = new Set(income.map(r => r.date?.slice(0, 7)).filter(Boolean)).size
+  const avgMonthlyGross = monthsWithData > 0 ? ytdGross / monthsWithData : 0
+  const currentCalMonth = new Date().getMonth() + 1
+  const isCurrentYear = selectedYear === new Date().getFullYear()
+  const remainingMonths = isCurrentYear ? Math.max(0, 12 - currentCalMonth) : 0
+  const projectedAnnualGross = ytdGross + remainingMonths * avgMonthlyGross
+  const defaultUrssafRate = URSSAF_CATEGORIES.find(c => c.id === 'bnc_services')?.rate || 0.22
+  const estimatedTotalUrssaf = projectedAnnualGross * defaultUrssafRate
+  const stillToSetUrssaf = Math.max(0, estimatedTotalUrssaf - ytdUrssaf)
+  const forecastThresholdPct = projectedAnnualGross > 0 ? Math.round(projectedAnnualGross / THRESHOLD_2025 * 100) : 0
 
   // Wishlist derived
   const PRIORITY_ORDER = { dream: 0, soon: 1, someday: 2 }
@@ -385,6 +405,48 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
                 </div>
               ))}
             </div>
+
+            {/* URSSAF Forecast */}
+            {ytdGross > 0 && (
+              <div style={{ ...S.card, borderColor: 'rgba(255,204,68,0.2)', background: 'rgba(255,204,68,0.03)' }}>
+                <div style={{ ...S.label, color: 'rgba(255,204,68,0.7)', marginBottom: 16 }}>
+                  📊 {lang === 'en' ? 'URSSAF Forecast' : 'Prévision URSSAF'}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 14 }}>
+                  {[
+                    { label: lang === 'en' ? 'Avg monthly' : 'Moy. mensuelle', val: avgMonthlyGross, color: '#f0f0f0' },
+                    { label: lang === 'en' ? 'Projected annual CA' : 'CA annuel projeté', val: projectedAnnualGross, color: '#fff' },
+                    { label: lang === 'en' ? 'Est. total URSSAF' : 'URSSAF totale estimée', val: estimatedTotalUrssaf, color: 'var(--c-accent)' },
+                    { label: lang === 'en' ? 'Already set aside' : 'Déjà mis de côté', val: ytdUrssaf, color: '#4eff91' },
+                    { label: lang === 'en' ? 'Still to set aside' : 'Encore à mettre', val: stillToSetUrssaf, color: stillToSetUrssaf > 0 ? '#ffcc44' : '#4eff91' },
+                  ].map(({ label, val, color }) => (
+                    <div key={label} style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 10, color: 'var(--c-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{label}</div>
+                      <div style={{ fontSize: 20, fontWeight: 700, color }}>€{Math.round(val).toLocaleString()}</div>
+                    </div>
+                  ))}
+                </div>
+                {forecastThresholdPct > 70 && (
+                  <div style={{ fontSize: 12, padding: '8px 12px', borderRadius: 6, marginBottom: 10,
+                    color: forecastThresholdPct >= 100 ? 'rgba(232,0,28,0.9)' : '#ffcc44',
+                    background: forecastThresholdPct >= 100 ? 'rgba(232,0,28,0.08)' : 'rgba(255,204,68,0.06)',
+                    border: `1px solid ${forecastThresholdPct >= 100 ? 'rgba(232,0,28,0.3)' : 'rgba(255,204,68,0.2)'}` }}>
+                    {forecastThresholdPct >= 100
+                      ? (lang === 'en'
+                          ? `⚠️ Projected CA (€${Math.round(projectedAnnualGross).toLocaleString()}) exceeds the €77,700 threshold — consult an accountant.`
+                          : `⚠️ CA projeté (${Math.round(projectedAnnualGross).toLocaleString()}€) dépasse le seuil — consultez un comptable.`)
+                      : (lang === 'en'
+                          ? `📈 At this rate you'll reach ${forecastThresholdPct}% of the €77,700 threshold by year end.`
+                          : `📈 À ce rythme vous atteindrez ${forecastThresholdPct}% du seuil de 77 700€ en fin d'année.`)}
+                  </div>
+                )}
+                <div style={{ fontSize: 11, color: 'var(--c-muted)' }}>
+                  {lang === 'en'
+                    ? `Based on ${monthsWithData} month${monthsWithData !== 1 ? 's' : ''} of data · ${remainingMonths} month${remainingMonths !== 1 ? 's' : ''} remaining in ${selectedYear} · BNC 22% rate`
+                    : `Basé sur ${monthsWithData} mois de données · ${remainingMonths} mois restants en ${selectedYear} · Taux BNC 22%`}
+                </div>
+              </div>
+            )}
 
             {/* Threshold warning */}
             {ytdGross > THRESHOLD_2025 * 0.8 && (

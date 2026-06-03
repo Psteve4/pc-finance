@@ -278,12 +278,20 @@ export default function MoneyTime({ onBack, lang, setLang }) {
 
   async function addWishMT() {
     if (!newWishMT.name || !newWishMT.price) return
-    const { data } = await supabase.from('mt_wishlist').insert({
-      name: newWishMT.name, price: parseFloat(newWishMT.price),
-      url: newWishMT.url || null, category: newWishMT.category || null,
-      owner: newWishMT.owner, funded: 0
+    const { data, error } = await supabase.from('mt_wishlist').insert({
+      name: newWishMT.name,
+      price: parseFloat(newWishMT.price),
+      url: newWishMT.url || null,
+      category: newWishMT.category || null,
+      owner: newWishMT.owner || 'both',
+      funded: 0,
+      purchased: false,
     }).select().single()
-    if (data) setWishlistMT(prev => [...prev, data])
+    if (error) {
+      console.error('mt_wishlist insert error:', error)
+      return
+    }
+    setWishlistMT(prev => [...prev, data])
     setNewWishMT({ name: '', price: '', url: '', category: '', owner: 'both' })
   }
 
