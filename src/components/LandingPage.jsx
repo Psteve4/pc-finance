@@ -92,11 +92,11 @@ export default function LandingPage({ onSelect, lang, setLang }) {
             badge="Pro Studio"
           >
             <div style={{ lineHeight: 1 }}>
-              <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 32, fontWeight: 700, color: '#0a1f14', letterSpacing: '-0.01em' }}>Canelle</span>
+              <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 32, fontWeight: 700, color: '#1a0a00', letterSpacing: '-0.01em' }}>Canelle</span>
               <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 32, fontWeight: 700, color: '#F49306', letterSpacing: '-0.01em' }}>.visuels</span>
             </div>
             <div style={{
-              fontSize: 12, color: '#3a6e52',
+              fontSize: 12, color: '#7a4a3a',
               marginTop: 12, letterSpacing: '0.1em', fontWeight: 500
             }}>{T.cv_sub}</div>
             <div style={{ marginTop: 24, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -132,10 +132,10 @@ function AppCard({ id, hovered, onHover, onClick, theme, badge, children }) {
         transform: hovered ? 'translateY(-6px) scale(1.01)' : 'translateY(0) scale(1)',
         background: isVista
           ? 'linear-gradient(135deg, #1a2744 0%, #243058 60%, #1e2a4d 100%)'
-          : '#b8d9c8',
+          : '#F5CAE8',
         border: isVista
           ? `1.5px solid ${hovered ? '#6ab4ff' : 'rgba(106,180,255,0.25)'}`
-          : `1.5px solid ${hovered ? '#F49306' : '#7aaa90'}`,
+          : `1.5px solid ${hovered ? '#F49306' : '#E0858E'}`,
         boxShadow: hovered
           ? isVista
             ? '0 20px 60px rgba(106,180,255,0.2), 0 0 0 1px rgba(106,180,255,0.15)'
@@ -167,7 +167,7 @@ function AppCard({ id, hovered, onHover, onClick, theme, badge, children }) {
       {/* Arrow */}
       <div style={{
         position: 'absolute', bottom: 24, right: 24,
-        fontSize: 20, color: isVista ? 'rgba(106,180,255,0.4)' : 'rgba(10,31,20,0.3)',
+        fontSize: 20, color: isVista ? 'rgba(106,180,255,0.4)' : '#E0858E',
         transition: 'all 0.2s',
         transform: hovered ? 'translate(3px,-3px)' : 'none',
         opacity: hovered ? 1 : 0.5

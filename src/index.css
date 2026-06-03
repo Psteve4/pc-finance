@@ -29,15 +29,15 @@ body { font-family: var(--font-modern); background: #0a0a0a; color: #fff; min-he
 
 /* ── CANELLE THEME ──────────────────────────────────── */
 .canelle {
-  --c-bg: #b8d9c8;
-  --c-surface: #a8cfc0;
-  --c-surface2: #9ec6aa;
-  --c-border: #7aaa90;
+  --c-bg: #F5CAE8;
+  --c-surface: #fff;
+  --c-surface2: #fde8f5;
+  --c-border: #E0858E;
   --c-accent: #F49306;
   --c-accent2: #F9B346;
-  --c-gold: #F49306;
-  --c-text: #0a1f14;
-  --c-muted: #3a6e52;
+  --c-gold: #C9B749;
+  --c-text: #1a0a00;
+  --c-muted: #7a4a3a;
   font-family: var(--font-modern);
 }
 
