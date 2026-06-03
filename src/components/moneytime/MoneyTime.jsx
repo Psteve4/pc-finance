@@ -134,6 +134,19 @@ export default function MoneyTime({ onBack, lang, setLang }) {
   async function deleteExpense(id) {
     await supabase.from('mt_expenses').delete().eq('id', id)
     setExpenses(prev => prev.filter(e => e.id !== id))
+    // Reload chart data
+    const months = Array.from({ length: 6 }, (_, i) => format(subMonths(new Date(), 5 - i), 'yyyy-MM'))
+    const data = await Promise.all(months.map(async (m) => {
+      const start = startOfMonth(parseISO(m + '-01')).toISOString().slice(0, 10)
+      const end = endOfMonth(parseISO(m + '-01')).toISOString().slice(0, 10)
+      const { data: sal } = await supabase.from('mt_salaries').select('amount').eq('month', m).eq('person', 'piers').maybeSingle()
+      const { data: exp } = await supabase.from('mt_expenses').select('amount').gte('date', start).lte('date', end)
+      const { data: ci } = await supabase.from('cv_income').select('amount_after_urssaf').gte('date', start).lte('date', end)
+      const income = (sal?.amount || 0) + (ci || []).reduce((s, r) => s + r.amount_after_urssaf, 0)
+      const spent = (exp || []).reduce((s, e) => s + e.amount, 0)
+      return { month: m.slice(5), income: Math.round(income), expenses: Math.round(spent), savings: Math.round(Math.max(0, income - spent)) }
+    }))
+    setChartData(data)
   }
 
   async function updateBalance(accountId, val) {
