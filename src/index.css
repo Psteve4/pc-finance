@@ -69,3 +69,5 @@ input, select, textarea {
 }
 
 button { cursor: pointer; font-family: inherit; border: none; background: none; }
+
+@keyframes spin { to { transform: rotate(360deg); } }

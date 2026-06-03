@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase, ACCOUNTS, EXPENSE_CATEGORIES, FOOD_BUDGET, RENT_AMOUNT } from '../../lib/supabase.js'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import { format, startOfMonth, endOfMonth, subMonths, parseISO } from 'date-fns'
@@ -102,6 +102,10 @@ export default function MoneyTime({ onBack, lang, setLang }) {
   const [wishLoadingMT, setWishLoadingMT] = useState(false)
   const [newExp, setNewExp] = useState({ amount: '', category: '', account: '', desc: '', date: format(new Date(), 'yyyy-MM-dd') })
   const [newSalary, setNewSalary] = useState('')
+  const [payslipLoading, setPayslipLoading] = useState(false)
+  const [payslipResult, setPayslipResult] = useState(null)
+  const [payslipError, setPayslipError] = useState(null)
+  const payslipInputRef = useRef(null)
 
   // Recurring state
   const [recurring, setRecurring] = useState([])
@@ -157,6 +161,82 @@ export default function MoneyTime({ onBack, lang, setLang }) {
     const active = recs.filter(r => r.active)
     if (active.length > 0 && !dismissed) {
       setShowRecBanner(true)
+    }
+  }
+
+  function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result.split(',')[1])
+      reader.onerror = reject
+      reader.readAsDataURL(file)
+    })
+  }
+
+  async function handlePayslipUpload(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    // Reset input so the same file can be re-selected if needed
+    e.target.value = ''
+    setPayslipLoading(true)
+    setPayslipResult(null)
+    setPayslipError(null)
+
+    try {
+      const base64 = await fileToBase64(file)
+      const isPDF = file.type === 'application/pdf'
+      const mediaType = file.type || (isPDF ? 'application/pdf' : 'image/jpeg')
+
+      const contentBlock = isPDF
+        ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } }
+        : { type: 'image',    source: { type: 'base64', media_type: mediaType,          data: base64 } }
+
+      const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY
+      if (!apiKey) throw new Error('VITE_ANTHROPIC_API_KEY not set in .env')
+
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 256,
+          system: 'You are a payslip parser. Extract the net pay (take-home amount after all deductions) from this payslip. Respond with ONLY a JSON object like: {"net_pay": 2450.00, "gross_pay": 3200.00, "currency": "EUR", "period": "2025-06"} - nothing else, no explanation.',
+          messages: [{ role: 'user', content: [contentBlock, { type: 'text', text: 'Parse this payslip.' }] }],
+        }),
+      })
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}))
+        throw new Error(errJson.error?.message || `HTTP ${res.status}`)
+      }
+
+      const apiData = await res.json()
+      const text = (apiData.content?.[0]?.text || '').trim()
+
+      // Parse JSON — try direct parse first, then extract from text
+      let parsed
+      try {
+        parsed = JSON.parse(text)
+      } catch {
+        const match = text.match(/\{[\s\S]*?\}/)
+        if (!match) throw new Error('No JSON found in response')
+        parsed = JSON.parse(match[0])
+      }
+
+      if (typeof parsed.net_pay !== 'number') throw new Error('net_pay missing from response')
+
+      setPayslipResult(parsed)
+      setNewSalary(String(Math.round(parsed.net_pay)))
+    } catch (err) {
+      console.error('Payslip parse error:', err)
+      setPayslipError(err.message)
+    } finally {
+      setPayslipLoading(false)
     }
   }
 
@@ -471,11 +551,87 @@ export default function MoneyTime({ onBack, lang, setLang }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }} className="page-enter">
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
               <div style={S.card}>
-                <div style={S.label}>{t.piers_income}</div>
+                {/* Hidden file input */}
+                <input
+                  ref={payslipInputRef}
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png"
+                  style={{ display: 'none' }}
+                  onChange={handlePayslipUpload}
+                />
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <div style={S.label}>{t.piers_income}</div>
+                  <button
+                    onClick={() => payslipInputRef.current?.click()}
+                    disabled={payslipLoading}
+                    style={{
+                      background: 'transparent', border: '1px solid rgba(106,180,255,0.25)',
+                      borderRadius: 4, padding: '3px 8px', fontSize: 10, color: 'var(--v-muted)',
+                      cursor: 'pointer', fontFamily: 'var(--font-mono)', letterSpacing: '0.06em',
+                      opacity: payslipLoading ? 0.5 : 1,
+                    }}
+                    title={lang === 'en' ? 'Upload payslip to auto-fill salary' : 'Importer fiche de paie'}
+                  >
+                    📄 {lang === 'en' ? 'Upload payslip' : 'Fiche de paie'}
+                  </button>
+                </div>
+
                 <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                   <input style={S.input} type="number" value={newSalary} onChange={e => setNewSalary(e.target.value)} placeholder="€ 0" />
                   <button style={S.btn} onClick={saveSalary}>▶</button>
                 </div>
+
+                {/* Loading */}
+                {payslipLoading && (
+                  <div style={{ fontSize: 11, color: 'var(--v-muted)', marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>⏳</span>
+                    {lang === 'en' ? 'Reading payslip…' : 'Lecture de la fiche…'}
+                  </div>
+                )}
+
+                {/* Success result */}
+                {payslipResult && !payslipLoading && (
+                  <div style={{ marginTop: 10, padding: '10px 12px', background: 'rgba(78,255,145,0.07)', border: '1px solid rgba(78,255,145,0.22)', borderRadius: 5 }}>
+                    <div style={{ fontSize: 12, color: 'var(--v-green)', fontWeight: 600, marginBottom: 6 }}>
+                      ✅ {lang === 'en'
+                        ? `Found net pay: €${payslipResult.net_pay?.toLocaleString()} — click ▶ to save`
+                        : `Net trouvé : €${payslipResult.net_pay?.toLocaleString()} — cliquez ▶ pour enregistrer`}
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 11, color: 'var(--v-muted)' }}>
+                      {payslipResult.gross_pay != null && (
+                        <span>{lang === 'en' ? 'Gross' : 'Brut'}: €{payslipResult.gross_pay.toLocaleString()}</span>
+                      )}
+                      {payslipResult.gross_pay != null && payslipResult.net_pay != null && (
+                        <span>{lang === 'en' ? 'Deductions' : 'Charges'}: €{Math.round(payslipResult.gross_pay - payslipResult.net_pay).toLocaleString()}</span>
+                      )}
+                      {payslipResult.period && (
+                        <span>{lang === 'en' ? 'Period' : 'Période'}: {payslipResult.period}</span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => setPayslipResult(null)}
+                      style={{ marginTop: 6, fontSize: 10, color: 'var(--v-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline', fontFamily: 'var(--font-mono)' }}
+                    >{lang === 'en' ? 'Dismiss' : 'Fermer'}</button>
+                  </div>
+                )}
+
+                {/* Error */}
+                {payslipError && !payslipLoading && (
+                  <div style={{ marginTop: 8, padding: '8px 10px', background: 'rgba(255,204,68,0.06)', border: '1px solid rgba(255,204,68,0.2)', borderRadius: 5 }}>
+                    <div style={{ fontSize: 11, color: 'var(--v-amber)', fontWeight: 600 }}>
+                      ⚠ {lang === 'en' ? "Couldn't read payslip automatically — please enter manually" : "Lecture automatique impossible — veuillez entrer manuellement"}
+                    </div>
+                    <div style={{ fontSize: 10, color: 'var(--v-muted)', marginTop: 4, fontFamily: 'var(--font-mono)', wordBreak: 'break-all' }}>
+                      {payslipError}
+                    </div>
+                    <button
+                      onClick={() => setPayslipError(null)}
+                      style={{ marginTop: 4, fontSize: 10, color: 'var(--v-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline', fontFamily: 'var(--font-mono)' }}
+                    >{lang === 'en' ? 'Dismiss' : 'Fermer'}</button>
+                  </div>
+                )}
+
                 <div style={{ ...S.big, marginTop: 8 }}>€{Math.round(piersSalary).toLocaleString()}</div>
               </div>
 
