@@ -92,21 +92,21 @@ export default function LandingPage({ onSelect, lang, setLang }) {
             badge="Pro Studio"
           >
             <div style={{ lineHeight: 1 }}>
-              <span style={{ fontFamily: 'Caveat, cursive', fontSize: 38, fontWeight: 700, color: '#1a0a00', display: 'inline-block', transform: 'rotate(-1deg)' }}>Canelle</span>
-              <span style={{ fontFamily: 'Caveat, cursive', fontSize: 38, fontWeight: 700, color: '#F49306', display: 'inline-block', transform: 'rotate(0.5deg)', marginLeft: 2 }}>.visuels</span>
+              <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 34, fontWeight: 700, color: '#1a0a00', letterSpacing: '-0.02em' }}>Canelle</span>
+              <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 34, fontWeight: 700, color: '#F49306', letterSpacing: '-0.02em' }}>.visuels</span>
             </div>
             <div style={{
-              fontSize: 12, color: '#7a4a3a',
-              marginTop: 12, letterSpacing: '0.1em', fontWeight: 500
+              fontSize: 12, color: '#7a4a3a', fontFamily: 'Space Grotesk, sans-serif',
+              marginTop: 12, letterSpacing: '0.06em', fontWeight: 500
             }}>{T.cv_sub}</div>
             <div style={{ marginTop: 24, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {['URSSAF', 'Factures', 'Historique', 'Objectifs'].map((tag, i) => (
                 <span key={tag} style={{
-                  fontSize: 14, padding: '3px 10px',
-                  borderRadius: i % 2 === 0 ? '10px 7px 12px 8px' : '8px 12px 7px 10px',
-                  background: ['rgba(244,147,6,0.18)','rgba(224,133,142,0.18)','rgba(165,187,26,0.18)','rgba(109,184,190,0.18)'][i],
+                  fontSize: 11, padding: '3px 10px', borderRadius: 100,
+                  background: ['rgba(244,147,6,0.12)','rgba(224,133,142,0.12)','rgba(165,187,26,0.12)','rgba(109,184,190,0.12)'][i],
                   color: ['#F49306','#E0858E','#A5BB1A','#6DB8BE'][i],
-                  border: 'none', fontFamily: 'Caveat, cursive', fontWeight: 600,
+                  border: 'none', fontFamily: 'Space Grotesk, sans-serif', fontWeight: 600,
+                  textTransform: 'uppercase', letterSpacing: '0.06em',
                 }}>{tag}</span>
               ))}
             </div>
@@ -131,15 +131,15 @@ function AppCard({ id, hovered, onHover, onClick, theme, badge, children }) {
         cursor: 'pointer', position: 'relative', overflow: 'hidden',
         transition: 'transform 0.25s ease',
         transform: hovered
-          ? (isVista ? 'translateY(-6px) scale(1.01)' : 'translateY(-6px) scale(1.01) rotate(-0.5deg)')
-          : (isVista ? 'translateY(0) scale(1)' : 'rotate(-0.5deg)'),
+          ? 'translateY(-6px) scale(1.01)'
+          : 'translateY(0) scale(1)',
         background: isVista
           ? 'linear-gradient(135deg, #1a2744 0%, #243058 60%, #1e2a4d 100%)'
-          : '#FDF6EC',
+          : `linear-gradient(90deg, #F49306 0px, #F49306 4px, #ffffff 4px, #ffffff 100%)`,
         border: isVista
           ? `1.5px solid ${hovered ? '#6ab4ff' : 'rgba(106,180,255,0.25)'}`
           : 'none',
-        borderRadius: isVista ? 16 : '14px 10px 16px 12px',
+        borderRadius: isVista ? 16 : 12,
         boxShadow: isVista
           ? (hovered ? '0 20px 60px rgba(106,180,255,0.2)' : '0 4px 24px rgba(0,0,0,0.4)')
           : 'none',
@@ -156,14 +156,14 @@ function AppCard({ id, hovered, onHover, onClick, theme, badge, children }) {
       {/* Badge */}
       <div style={{
         display: 'inline-block', marginBottom: 24, padding: '4px 12px',
-        borderRadius: isVista ? 4 : '12px 8px 14px 10px',
-        fontSize: isVista ? 10 : 14, fontWeight: 700,
-        letterSpacing: isVista ? '0.15em' : '0.02em',
-        textTransform: isVista ? 'uppercase' : 'none',
-        background: isVista ? 'rgba(106,180,255,0.1)' : 'rgba(244,147,6,0.15)',
+        borderRadius: isVista ? 4 : 100,
+        fontSize: 11, fontWeight: 700,
+        letterSpacing: '0.12em',
+        textTransform: 'uppercase',
+        background: isVista ? 'rgba(106,180,255,0.1)' : 'rgba(244,147,6,0.12)',
         color: isVista ? 'rgba(106,180,255,0.7)' : '#F49306',
         border: isVista ? '1px solid rgba(106,180,255,0.2)' : 'none',
-        fontFamily: isVista ? 'Space Grotesk, sans-serif' : 'Caveat, cursive'
+        fontFamily: 'Space Grotesk, sans-serif'
       }}>{badge}</div>
 
       {children}

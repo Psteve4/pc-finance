@@ -5,10 +5,10 @@ import { format } from 'date-fns'
 
 // ── Palette ───────────────────────────────────────────────────────────
 const P = {
-  bg: '#FDF6EC', surface: '#fffef5', surface2: '#FFF0F5', border: 'transparent',
+  bg: '#FAFAF8', surface: '#FFFFFF', surface2: '#F7F4F0',
   orange: '#F49306', pink: '#E0858E', green: '#A5BB1A',
   blue: '#6DB8BE', red: '#E63A26', gold: '#C9B749',
-  text: '#1a0a00', muted: '#7a4a3a',
+  text: '#1a0a00', muted: '#7a4a3a', subtle: '#b8a89a',
 }
 
 const RENT = 800
@@ -467,22 +467,33 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
 
   // ── Styles ─────────────────────────────────────────────────────────
   const S = {
-    container: { minHeight:'100vh', backgroundColor:'#FDF6EC', backgroundImage:'radial-gradient(rgba(224,133,142,0.12) 1px, transparent 1px)', backgroundSize:'24px 24px', color:P.text, fontFamily:"'Patrick Hand', sans-serif" },
-    card: { background:P.surface, border:`1px solid ${P.border}`, borderRadius:10, padding:24 },
-    label: { fontSize:11, letterSpacing:'0.12em', textTransform:'uppercase', color:P.muted, marginBottom:6 },
-    input: { background:P.surface2, border:`1px solid ${P.border}`, borderRadius:6, padding:'10px 14px', color:P.text, fontSize:13, width:'100%', fontFamily:'var(--font-modern)' },
-    btn: { background:P.orange, border:'none', borderRadius:6, padding:'10px 20px', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'var(--font-modern)', transition:'opacity 0.15s' },
-    btnOutline: (color=P.orange) => ({ background:'transparent', border:`1px solid ${color}`, borderRadius:6, padding:'8px 14px', color, fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'var(--font-modern)' }),
-    btnDanger: { background:'rgba(230,58,38,0.08)', border:`1px solid rgba(230,58,38,0.3)`, borderRadius:6, padding:'6px 10px', color:P.red, fontSize:12, cursor:'pointer', fontFamily:'var(--font-modern)' },
+    container: { minHeight:'100vh', background:P.bg, color:P.text, fontFamily:"'Space Grotesk', sans-serif" },
+    // White card — no border, no shadow, floating on warm bg. Use accentCard for coloured edge.
+    card: { background:'#fff', borderRadius:12, padding:28, position:'relative' },
+    // Left-edge coloured accent strip using gradient (not border)
+    accentCard: (color=P.orange) => ({
+      background:`linear-gradient(90deg, ${color} 0px, ${color} 4px, #fff 4px, #fff 100%)`,
+      borderRadius:12, padding:'24px 28px 24px 32px', position:'relative'
+    }),
+    // Magazine-style section header
+    label: { fontSize:11, letterSpacing:'0.15em', textTransform:'uppercase', color:P.muted, marginBottom:10, fontWeight:600, fontFamily:"'Space Grotesk', sans-serif" },
+    // Clean underline-only input
+    input: { background:'transparent', border:'none', borderBottom:'2px solid #e8e0d8', borderRadius:0, padding:'10px 2px', color:P.text, fontSize:14, width:'100%', fontFamily:"'Space Grotesk', sans-serif", outline:'none' },
+    // Pill buttons — no border, no shadow
+    btn: { background:P.orange, border:'none', borderRadius:100, padding:'12px 28px', color:'#fff', fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:"'Space Grotesk', sans-serif" },
+    btnSecondary: { background:P.pink, border:'none', borderRadius:100, padding:'10px 22px', color:'#fff', fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:"'Space Grotesk', sans-serif" },
+    btnGhost: (color=P.muted) => ({ background:'transparent', border:'none', color, fontSize:13, fontWeight:500, cursor:'pointer', fontFamily:"'Space Grotesk', sans-serif", textDecoration:'underline', textDecorationColor:`${color}55` }),
+    btnDanger: { background:'transparent', border:'none', color:P.red, fontSize:13, cursor:'pointer', fontFamily:"'Space Grotesk', sans-serif", padding:'4px 8px', opacity:0.8 },
+    // Editorial tab nav
     navBtn: (active) => ({
-      padding:'14px 22px', fontSize:12, fontWeight:600, cursor:'pointer',
+      padding:'16px 24px', fontSize:13, fontWeight:active?600:400, cursor:'pointer',
       background:'transparent', color:active?P.text:P.muted,
-      border:'none', borderBottom:active?`2px solid ${P.orange}`:'2px solid transparent',
-      letterSpacing:'0.08em', textTransform:'uppercase', fontFamily:'var(--font-modern)', transition:'all 0.15s'
+      border:'none', borderBottom:active?`3px solid ${P.orange}`:'3px solid transparent',
+      fontFamily:"'Space Grotesk', sans-serif", transition:'all 0.15s', whiteSpace:'nowrap'
     }),
   }
 
-  const tipStyle = { background:P.surface, border:`1px solid ${P.border}`, borderRadius:6, fontSize:12, color:P.text }
+  const tipStyle = { background:'#fff', border:'1px solid rgba(0,0,0,0.06)', borderRadius:8, fontSize:12, color:P.text }
 
   // ── ONBOARDING ──────────────────────────────────────────────────────
   if (onboardingMode) {
@@ -495,7 +506,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
               Add your income from May 2025 to today in one go. You only do this once.<br/>Months with no income can be left blank.
             </div>
           </div>
-          <div style={{ ...S.card, borderColor:P.orange, marginBottom:20 }}>
+          <div style={{...S.accentCard(P.orange), marginBottom:20}}>
             <div style={{ display:'grid', gridTemplateColumns:'140px 1fr 1fr', gap:10, marginBottom:10 }}>
               {['Month','Total gross (€)','Note (optional)'].map(h=>(
                 <div key={h} style={{ ...S.label, marginBottom:0 }}>{h}</div>
@@ -536,15 +547,15 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
   return (
     <div className="canelle" style={S.container}>
       {/* Header */}
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'18px 32px', borderBottom:`1px solid ${P.border}`, background:'rgba(255,255,255,0.5)' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:20 }}>
-          <button onClick={onBack} style={{ ...S.btnOutline(), padding:'7px 14px', fontSize:12 }}>{t.back}</button>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'20px 40px', background:'#fff', borderBottom:'1px solid rgba(0,0,0,0.06)' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:24 }}>
+          <button onClick={onBack} style={{ ...S.btnGhost(), fontSize:13 }}>{t.back}</button>
           <div>
             <div style={{ lineHeight:1 }}>
-              <span style={{ fontSize:26, fontWeight:700, color:P.text, letterSpacing:'-0.01em' }}>Canelle</span>
-              <span style={{ fontSize:26, fontWeight:700, color:P.orange, letterSpacing:'-0.01em' }}>.visuels</span>
+              <span style={{ fontSize:30, fontWeight:700, color:P.text, letterSpacing:'-0.02em' }}>Canelle</span>
+              <span style={{ fontSize:30, fontWeight:700, color:P.orange, letterSpacing:'-0.02em' }}>.visuels</span>
             </div>
-            <div style={{ fontSize:10, color:P.muted, letterSpacing:'0.15em', marginTop:2 }}>BUSINESS TRACKER</div>
+            <div style={{ fontSize:10, color:P.subtle, letterSpacing:'0.2em', marginTop:3, textTransform:'uppercase' }}>Business Tracker</div>
           </div>
         </div>
         <div style={{ display:'flex', gap:10, alignItems:'center', flexWrap:'wrap' }}>
@@ -561,11 +572,12 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
               <button key={l} onClick={()=>setLang(l)} style={{
                 padding:'5px 10px', borderRadius:5, fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'var(--font-modern)',
                 background:lang===l?P.orange:'transparent', color:lang===l?'#fff':P.muted,
-                border:`1px solid ${lang===l?P.orange:P.border}`, textTransform:'uppercase'
+                border:'none', borderBottom:`2px solid ${lang===l?P.orange:'transparent'}`,
+                textTransform:'uppercase', borderRadius:0,
               }}>{l}</button>
             ))}
           </div>
-          <button onClick={()=>setOnboardingMode(true)} style={{ ...S.btnOutline(P.pink), padding:'7px 12px', fontSize:11, whiteSpace:'nowrap' }}>
+          <button onClick={()=>setOnboardingMode(true)} style={{ ...S.btnSecondary, padding:'8px 16px', fontSize:12, whiteSpace:'nowrap' }}>
             📂 {lang==='en'?'Add history':'Ajouter historique'}
           </button>
           <select value={selectedYear} onChange={e=>setSelectedYear(parseInt(e.target.value))} style={{ ...S.input, width:88 }}>
@@ -575,20 +587,20 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
       </div>
 
       {/* Nav */}
-      <div style={{ display:'flex', background:'rgba(255,255,255,0.4)', borderBottom:`1px solid ${P.border}`, padding:'0 32px', overflowX:'auto' }}>
+      <div style={{ display:'flex', background:'#fff', borderBottom:'1px solid rgba(0,0,0,0.06)', padding:'0 40px', overflowX:'auto' }}>
         {['dashboard','progress','expenses','history','splits','wishlist'].map(tid=>(
           <button key={tid} style={S.navBtn(tab===tid)} onClick={()=>setTab(tid)}>{nav[tid]}</button>
         ))}
       </div>
 
-      <div style={{ padding:'28px 32px', maxWidth:1100, margin:'0 auto' }}>
+      <div style={{ padding:'32px 40px', maxWidth:1100, margin:'0 auto' }}>
 
         {/* ── DASHBOARD ── */}
         {tab==='dashboard' && (
           <div style={{ display:'flex', flexDirection:'column', gap:24 }} className="page-enter">
 
             {/* Goal circle */}
-            <div style={{ ...S.card, borderColor:P.orange }}>
+            <div style={S.accentCard(P.orange)}>
               <div style={{ display:'flex', alignItems:'center', gap:32, flexWrap:'wrap' }}>
                 <GoalCircle current={currentMonthGross} goal={monthlyGoal}/>
                 <div style={{ flex:1, minWidth:200 }}>
@@ -613,7 +625,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
             </div>
 
             {/* Add income */}
-            <div ref={addIncomeRef} style={{ ...S.card, borderColor:P.orange }}>
+            <div ref={addIncomeRef} style={S.accentCard(P.orange)}>
               <div style={{ ...S.label, color:P.orange, marginBottom:16 }}>+ {t.add_income}</div>
               <div style={{ display:'grid', gridTemplateColumns:'2fr 1.5fr 1fr 1.5fr 2fr', gap:12, marginBottom:12 }}>
                 <div><div style={S.label}>{t.client}</div><input style={S.input} value={form.client} onChange={e=>setForm(p=>({...p,client:e.target.value}))} placeholder="Client"/></div>
@@ -630,7 +642,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
                 </div>
               </div>
               {previewGross>0 && (
-                <div style={{ background:P.surface2, borderRadius:8, padding:'14px 18px' }}>
+                <div style={{ background:'#F7F4F0', borderRadius:8, padding:'14px 18px', marginTop:16 }}>
                   <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
                     <div style={{ fontSize:12, color:P.muted }}>🏦 Monobanque reçoit</div>
                     <div style={{ fontSize:18, fontWeight:700, color:P.text }}>€{Math.round(previewGross).toLocaleString()}</div>
@@ -663,21 +675,21 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
             {/* YTD stats */}
             <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:16 }}>
               {[
-                { label:t.year_total, val:ytdGross, color:P.text, sub:`${Math.round(ytdGross/THRESHOLD_2025*100)}% of €${THRESHOLD_2025.toLocaleString()}` },
-                { label:'URSSAF dû', val:ytdUrssaf, color:P.red, sub:`${Math.round(formRate*100)}% rate` },
-                { label:t.net, val:ytdNet, color:P.green, sub:'Net YTD' },
-                { label:t.to_wise, val:ytdToPiers, color:P.blue, sub:'Épargne commune' },
-              ].map(({label,val,color,sub})=>(
-                <div key={label} style={S.card}>
+                { label:t.year_total, val:ytdGross, color:P.text, sub:`${Math.round(ytdGross/THRESHOLD_2025*100)}% of €${THRESHOLD_2025.toLocaleString()}`, accent:P.orange },
+                { label:'URSSAF dû', val:ytdUrssaf, color:P.red, sub:`${Math.round(formRate*100)}% rate`, accent:P.red },
+                { label:t.net, val:ytdNet, color:P.green, sub:'Net YTD', accent:P.green },
+                { label:t.to_wise, val:ytdToPiers, color:P.blue, sub:'Épargne commune', accent:P.blue },
+              ].map(({label,val,color,sub,accent})=>(
+                <div key={label} style={S.accentCard(accent)}>
                   <div style={S.label}>{label}</div>
-                  <div style={{ fontSize:26, fontWeight:700, color, marginTop:8 }}>€{Math.round(val).toLocaleString()}</div>
-                  <div style={{ fontSize:11, color:P.muted, marginTop:6 }}>{sub}</div>
+                  <div style={{ fontSize:36, fontWeight:700, color, marginTop:6, lineHeight:1, letterSpacing:'-0.02em' }}>€{Math.round(val).toLocaleString()}</div>
+                  <div style={{ fontSize:11, color:P.subtle, marginTop:8 }}>{sub}</div>
                 </div>
               ))}
             </div>
 
             {ytdGross>0 && (
-              <div style={{ ...S.card, borderColor:P.orange }}>
+              <div style={S.accentCard(P.orange)}>
                 <div style={{ ...S.label, color:P.orange, marginBottom:12 }}>📊 {lang==='en'?'URSSAF Forecast':'Prévision URSSAF'}</div>
                 <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12 }}>
                   {[
@@ -714,7 +726,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
               </ResponsiveContainer>
             </div>
 
-            <div style={{ ...S.card, borderColor:P.gold }}>
+            <div style={S.accentCard(P.gold)}>
               <div style={{ ...S.label, color:P.gold }}>💼 {t.tips}</div>
               <div style={{ fontSize:14, color:P.text, marginTop:10, lineHeight:1.7 }}>{TIPS[lang][tipIdx]}</div>
             </div>
@@ -1022,7 +1034,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
               ))}
             </div>
 
-            <div style={{ ...S.card, borderColor:P.orange }}>
+            <div style={S.accentCard(P.orange)}>
               <div style={{ ...S.label, color:P.orange, marginBottom:16 }}>+ {t.wish_add}</div>
               <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr 1fr 1fr', gap:12, marginBottom:12 }}>
                 <div><div style={S.label}>{t.wish_name}</div><input style={S.input} value={newWish.name} onChange={e=>setNewWish(p=>({...p,name:e.target.value}))} placeholder="Sony lens…"/></div>
@@ -1092,7 +1104,7 @@ function CVWishCard({ item, onMarkBought, onDelete, S, lang }) {
   const pc = CV_PRIORITY_COLORS[item.priority]||P.orange
 
   return (
-    <div style={{ ...S.card, borderColor:isReady?'rgba(165,187,26,0.5)':P.border }}>
+    <div style={{...S.card, borderLeft: isReady ? `4px solid ${P.green}` : `4px solid transparent`, paddingLeft: isReady ? 24 : 28}}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:12 }}>
         <div style={{ flex:1 }}>
           <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:6 }}>

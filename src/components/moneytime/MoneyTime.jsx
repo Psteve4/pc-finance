@@ -1198,26 +1198,32 @@ const isMonthEnd = new Date().getDate() >= 25
 
 const POCKET_PRESET_COLORS = ['#F49306','#E0858E','#A5BB1A','#6DB8BE','#ffcc44','#9b59b6']
 
-function BudgetPie({ combinedIncome, recurringTotal, budgetSlices, adjustSlice, customPockets, showAddPocket, setShowAddPocket, newPocket, setNewPocket, addCustomPocket, deleteCustomPocket, S, lang }) {
-  const rentPct  = combinedIncome > 0 ? (RENT_AMOUNT  / combinedIncome) * 100 : 0
-  const recPct   = combinedIncome > 0 ? (recurringTotal / combinedIncome) * 100 : 0
-  const adjTotal = Object.values(budgetSlices).reduce((s, v) => s + v, 0)
+function BudgetPie({ combinedIncome = 0, recurringTotal = 0, budgetSlices = {}, adjustSlice, customPockets = [], showAddPocket, setShowAddPocket, newPocket, setNewPocket, addCustomPocket, deleteCustomPocket, S, lang }) {
+  // Guard: render nothing if critical helpers missing
+  if (!adjustSlice || !S) return null
+  const safeIncome = combinedIncome || 0
+  const safeRecurring = recurringTotal || 0
+  const rentPct  = safeIncome > 0 ? (RENT_AMOUNT  / safeIncome) * 100 : 0
+  const recPct   = safeIncome > 0 ? (safeRecurring / safeIncome) * 100 : 0
+  const adjTotal = Object.values(budgetSlices).reduce((s, v) => s + (Number(v) || 0), 0)
   const totalUsed = rentPct + recPct + adjTotal
   const unallocated = Math.max(0, 100 - totalUsed)
   const overBudget = totalUsed > 100
 
-  // Build all slices in order (built-in + custom pockets)
+  // Build all slices — safe lookup: custom pocket keys won't be in SLICE_META
   const allSlices = [
     { key: 'rent',      pct: rentPct,  ...SLICE_META.rent },
     { key: 'recurring', pct: recPct,   ...SLICE_META.recurring },
     ...Object.entries(budgetSlices).map(([k, v]) => {
-      const custom = customPockets.find(p => p.key === k)
-      return { key: k, pct: v, ...(custom ? { label: custom.name, color: custom.color, fixed: false } : SLICE_META[k] || { label: k, color: '#888', fixed: false }) }
+      const customMeta = (customPockets || []).find(p => p.key === k)
+      const builtIn = SLICE_META[k]
+      const meta = builtIn || (customMeta ? { label: customMeta.name, color: customMeta.color, fixed: false } : { label: k, color: '#888', fixed: false })
+      return { key: k, pct: Number(v) || 0, ...meta }
     }),
-    { key: 'unalloc',   pct: unallocated, label: 'Free', color: '#1a2744', fixed: true },
+    { key: 'unalloc', pct: unallocated, label: 'Free', color: '#1a2744', fixed: true },
   ]
 
-  // Build SVG arcs
+  // Build SVG arcs — guard against NaN angles
   const CX = 120, CY = 120, OR = 100, IR = 60
   let angle = 0
   const arcs = allSlices.map(sl => {
@@ -1251,7 +1257,7 @@ function BudgetPie({ combinedIncome, recurringTotal, budgetSlices, adjustSlice, 
           <div style={{ marginTop: 8, fontSize: 13, fontWeight: 600, color: overBudget ? '#ff4e4e' : '#4eff91', textAlign: 'center' }}>
             {overBudget
               ? `⚠ Over budget (${Math.round(totalUsed - 100)}% excess)`
-              : `✓ ${Math.round(unallocated)}% unallocated (€${Math.round(combinedIncome * unallocated / 100).toLocaleString()})`}
+              : `✓ ${Math.round(unallocated)}% unallocated (€${Math.round(safeIncome * unallocated / 100).toLocaleString()})`}
           </div>
           {combinedIncome === 0 && (
             <div style={{ fontSize: 11, color: 'var(--v-muted)', marginTop: 6, textAlign: 'center' }}>
@@ -1282,8 +1288,9 @@ function BudgetPie({ combinedIncome, recurringTotal, budgetSlices, adjustSlice, 
           <div style={{ ...S.card, padding: 16 }}>
             <div style={{ ...S.label, marginBottom: 10 }}>{lang === 'en' ? 'Adjustable allocations' : 'Allocations ajustables'}</div>
             {Object.entries(budgetSlices).map(([key, pct]) => {
-              const meta = SLICE_META[key]
-              const euros = Math.round(combinedIncome * pct / 100)
+              const customMeta = (customPockets || []).find(p => p.key === key)
+              const meta = SLICE_META[key] || (customMeta ? { label: customMeta.name, color: customMeta.color } : { label: key, color: '#888' })
+              const euros = Math.round(safeIncome * pct / 100)
               return (
                 <div key={key} style={{ marginBottom: 14 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
@@ -1380,7 +1387,7 @@ function BudgetPie({ combinedIncome, recurringTotal, budgetSlices, adjustSlice, 
                   : (lang === 'en' ? 'Remaining unallocated' : 'Non alloué restant')}
               </span>
               <span style={{ fontFamily: 'var(--font-vista)', fontSize: 18, color: overBudget ? '#ff4e4e' : '#4eff91' }}>
-                {Math.round(unallocated)}% · €{Math.round(combinedIncome * unallocated / 100).toLocaleString()}
+                {Math.round(unallocated)}% · €{Math.round(safeIncome * unallocated / 100).toLocaleString()}
               </span>
             </div>
           </div>

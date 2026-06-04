@@ -3,7 +3,7 @@
 :root {
   --font-vista: 'VT323', monospace;
   --font-mono: 'Share Tech Mono', monospace;
-  --font-modern: 'Patrick Hand', sans-serif;
+  --font-modern: 'Space Grotesk', sans-serif;
   --font-display: 'Bebas Neue', cursive;
   --font-hand: 'Caveat', cursive;
 }
@@ -50,10 +50,11 @@ body { font-family: var(--font-modern); background: #0a0a0a; color: #fff; min-he
   background-attachment: fixed;
 }
 
-/* Scrapbook helpers */
-.btn-scrap { transition: transform 0.12s ease; }
-.btn-scrap:hover { transform: translate(-1px, -1px) !important; }
-.input-scrap:focus { background: #fff0e8 !important; outline: none !important; }
+/* Canelle editorial input — orange underline on focus */
+.canelle input:focus, .canelle select:focus, .canelle textarea:focus {
+  border-bottom-color: #F49306 !important;
+  outline: none;
+}
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 6px; }
