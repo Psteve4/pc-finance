@@ -393,10 +393,21 @@ export default function MoneyTime({ onBack, lang, setLang }) {
       const parsed = JSON.parse(text.match(/\{[\s\S]*?\}/)?.[0] || text)
       if (typeof parsed.net_pay === 'number') {
         const val = String(Math.round(parsed.net_pay))
-        setEditingMonth(month)
-        setEditMonthValue(val)
+        // Auto-save and show result banner (used by overview card)
+        setPayslipResult({ net_pay: parsed.net_pay })
+        setPayslipError(null)
+        await supabase.from('mt_salaries').upsert(
+          { month, person: 'piers', amount: Math.round(parsed.net_pay) },
+          { onConflict: 'month,person' }
+        )
+        setPiersSalary(Math.round(parsed.net_pay))
+        setNewSalary(val)
+        await loadSalaryHistory()
       }
-    } catch(err) { console.error('Payslip error:', err) }
+    } catch(err) {
+      console.error('Payslip error:', err)
+      setPayslipError(err.message || 'Parse error')
+    }
     setRowPayslipLoading(prev => ({ ...prev, [month]: false }))
     setUploadingForMonth(null)
   }
@@ -662,9 +673,18 @@ export default function MoneyTime({ onBack, lang, setLang }) {
         const { data: sal } = await supabase.from('mt_salaries').select('amount').eq('month', m).eq('person', 'piers').maybeSingle()
         const { data: exp } = await supabase.from('mt_expenses').select('amount').gte('date', start).lte('date', end)
         const { data: ci } = await supabase.from('cv_income').select('amount_after_urssaf').gte('date', start).lte('date', end)
-        const income = (sal?.amount || 0) + (ci || []).reduce((s, r) => s + r.amount_after_urssaf, 0)
+        const piersAmt = sal?.amount || 0
+        const canelleAmt = (ci || []).reduce((s, r) => s + r.amount_after_urssaf, 0)
+        const income = piersAmt + canelleAmt
         const spent = (exp || []).reduce((s, e) => s + e.amount, 0)
-        return { month: m.slice(5), income: Math.round(income), expenses: Math.round(spent), savings: Math.round(Math.max(0, income - spent)) }
+        return {
+          month: m.slice(5),
+          income: Math.round(income),
+          expenses: Math.round(spent),
+          savings: Math.round(Math.max(0, income - spent)),
+          piers: Math.round(piersAmt),
+          canelle: Math.round(canelleAmt),
+        }
       }))
       setChartData(data)
     }
@@ -777,113 +797,84 @@ export default function MoneyTime({ onBack, lang, setLang }) {
                   : "Le salaire de Piers arrive généralement avant le 6 — la répartition proportionnelle se mettra à jour automatiquement."}
               </div>
             )}
-            {/* Shared file input for per-row payslip scanning */}
+            {/* Hidden file input for payslip scanning */}
             <input ref={salaryRowPayslipRef} type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display:'none' }} onChange={handleRowPayslipFile}/>
 
-            {/* ── SALARY HISTORY TABLE ── */}
+            {/* ── SIMPLE SALARY CARD ── */}
             <div style={S.card}>
-              <div style={{ ...S.label, marginBottom: 14 }}>{lang === 'en' ? 'Salary history — Piers' : 'Historique salaire — Piers'}</div>
+              <div style={{ ...S.label, marginBottom: 12 }}>💼 {lang === 'en' ? "Piers Monthly Salary" : "Salaire mensuel Piers"}</div>
 
-              {/* Quick-add current month */}
-              <div style={{ background: 'rgba(106,180,255,0.1)', border: '1px solid rgba(106,180,255,0.3)', borderRadius: 6, padding: '12px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{ flex: 1, fontSize: 13, color: 'var(--v-accent)', fontWeight: 600 }}>
-                  {lang === 'en' ? 'Current month:' : 'Mois actuel :'} {monthLabelMT(TODAY_MONTH, lang)}
-                </div>
-                <input style={{ ...S.input, width: 120, fontSize: 13 }} type="number"
-                  value={quickAddValue} onChange={e => setQuickAddValue(e.target.value)}
-                  placeholder={prevNet > 0 ? `€${Math.round(prevNet)} (suggestion)` : '€ 0'}/>
-                <button style={{ ...S.btn, fontSize: 11, padding: '6px 14px', whiteSpace: 'nowrap' }}
-                  onClick={() => { saveSalaryForMonth(TODAY_MONTH, quickAddValue); setQuickAddValue('') }}>
-                  💾 {lang === 'en' ? 'Save' : 'Enregistrer'}
-                </button>
-                <button onClick={() => handleRowPayslipClick(TODAY_MONTH)} disabled={!!rowPayslipLoading[TODAY_MONTH]}
-                  style={{ ...S.btn, fontSize: 11, padding: '6px 10px', background: 'transparent', border: '1px solid rgba(106,180,255,0.4)', color: 'var(--v-accent)', opacity: rowPayslipLoading[TODAY_MONTH] ? 0.5 : 1 }}>
-                  {rowPayslipLoading[TODAY_MONTH] ? '⏳' : '📄'}
-                </button>
+              {/* Current salary display */}
+              <div style={{ fontFamily: 'var(--font-vista)', fontSize: 40, color: 'var(--v-accent)', letterSpacing: '0.05em', marginBottom: 8 }}>
+                {piersSalary > 0 ? `€${Math.round(piersSalary).toLocaleString()}` : '—'}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--v-muted)', marginBottom: 16 }}>
+                {monthLabelMT(TODAY_MONTH, lang)}
               </div>
 
-              {/* History table */}
-              <div style={{ maxHeight: 380, overflowY: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                  <thead><tr>
-                    {['Month','Net salary','Notes',''].map(h => (
-                      <th key={h} style={{ padding: '7px 10px', textAlign: 'left', borderBottom: '1px solid var(--v-glass-border)', fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--v-muted)' }}>{h}</th>
-                    ))}
-                  </tr></thead>
-                  <tbody>
-                    {MT_SALARY_MONTHS.map(ym => {
-                      const entry = salaryHistory.find(s => s.month === ym)
-                      const isEditing = editingMonth === ym
-                      const isLoading = !!rowPayslipLoading[ym]
-                      return (
-                        <tr key={ym} style={{ borderBottom: '1px solid rgba(106,180,255,0.06)' }}>
-                          <td style={{ padding: '9px 10px', color: ym === TODAY_MONTH ? 'var(--v-accent)' : 'var(--v-text)', fontWeight: ym === TODAY_MONTH ? 600 : 400 }}>
-                            {monthLabelMT(ym, lang)}{ym === TODAY_MONTH ? ' ●' : ''}
-                          </td>
-                          <td style={{ padding: '9px 10px' }}>
-                            {isEditing ? (
-                              <input style={{ ...S.input, width: 110, fontSize: 13 }} type="number" autoFocus
-                                value={editMonthValue} onChange={e => setEditMonthValue(e.target.value)}
-                                onKeyDown={e => { if(e.key==='Enter') saveSalaryForMonth(ym, editMonthValue, editMonthNote); if(e.key==='Escape') setEditingMonth(null) }}/>
-                            ) : (
-                              <span style={{ color: entry ? 'var(--v-green)' : 'var(--v-muted)', fontFamily: entry ? 'var(--font-vista)' : 'inherit', fontSize: entry ? 18 : 13 }}>
-                                {entry ? `€${Math.round(entry.amount).toLocaleString()}` : '—'}
-                              </span>
-                            )}
-                          </td>
-                          <td style={{ padding: '9px 10px', color: 'var(--v-muted)', fontSize: 12 }}>
-                            {isEditing ? (
-                              <input style={{ ...S.input, width: 120, fontSize: 12 }} placeholder="Payslip"
-                                value={editMonthNote} onChange={e => setEditMonthNote(e.target.value)}/>
-                            ) : (
-                              <span>{entry?.notes || (entry ? '' : '')}</span>
-                            )}
-                          </td>
-                          <td style={{ padding: '9px 6px', whiteSpace: 'nowrap' }}>
-                            {isEditing ? (
-                              <div style={{ display: 'flex', gap: 4 }}>
-                                <button style={{ ...S.btn, padding: '4px 10px', fontSize: 11 }} onClick={() => saveSalaryForMonth(ym, editMonthValue, editMonthNote)}>💾</button>
-                                <button style={{ ...S.btn, background: 'transparent', color: 'var(--v-muted)', padding: '4px 8px', fontSize: 11 }} onClick={() => setEditingMonth(null)}>✕</button>
-                              </div>
-                            ) : (
-                              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                                {!entry && (
-                                  <button style={{ ...S.btn, padding: '3px 10px', fontSize: 11, background: 'rgba(106,180,255,0.15)', color: 'var(--v-accent)', border: '1px solid rgba(106,180,255,0.3)' }}
-                                    onClick={() => { setEditingMonth(ym); setEditMonthValue(''); setEditMonthNote('') }}>
-                                    Ajouter ▶
-                                  </button>
-                                )}
-                                {entry && <button onClick={() => { setEditingMonth(ym); setEditMonthValue(String(Math.round(entry.amount))); setEditMonthNote(entry.notes||'') }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, opacity: 0.7 }}>✏️</button>}
-                                {entry && <button onClick={() => deleteSalaryForMonth(ym)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, opacity: 0.7 }}>🗑️</button>}
-                                <button onClick={() => handleRowPayslipClick(ym)} disabled={isLoading}
-                                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, opacity: isLoading ? 0.5 : 0.6 }}>
-                                  {isLoading ? '⏳' : '📄'}
-                                </button>
-                              </div>
-                            )}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Salary summary cards */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--v-glass-border)' }}>
-                {[
-                  { label: lang==='en'?'Avg (6 months)':'Moy. 6 mois', val: avgSalary > 0 ? `€${avgSalary.toLocaleString()}` : '—', color: 'var(--v-accent)' },
-                  { label: lang==='en'?'Best month':'Meilleur mois', val: bestSalaryMonth && histNet(bestSalaryMonth) > 0 ? `€${Math.round(histNet(bestSalaryMonth)).toLocaleString()}` : '—', sub: bestSalaryMonth && histNet(bestSalaryMonth) > 0 ? monthLabelMT(bestSalaryMonth, lang).slice(0,8) : '', color: 'var(--v-green)' },
-                  { label: lang==='en'?'Total since May 25':'Total depuis mai 25', val: totalEarned > 0 ? `€${Math.round(totalEarned).toLocaleString()}` : '—', color: 'var(--v-text)' },
-                  { label: lang==='en'?'Month vs prev':'Mois vs précédent', val: salaryMoM !== null ? `${salaryMoM>=0?'+':''}${salaryMoM}%` : '—', color: salaryMoM === null ? 'var(--v-muted)' : salaryMoM >= 0 ? 'var(--v-green)' : 'var(--v-red)' },
-                ].map(({ label, val, color, sub }) => (
-                  <div key={label}>
-                    <div style={{ fontSize: 9, color: 'var(--v-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 3 }}>{label}</div>
-                    <div style={{ fontFamily: 'var(--font-vista)', fontSize: 18, color }}>{val}</div>
-                    {sub && <div style={{ fontSize: 10, color: 'var(--v-muted)', marginTop: 2 }}>{sub}</div>}
+              {/* Payslip upload result */}
+              {payslipResult && !payslipLoading && (
+                <div style={{ marginBottom: 12, padding: '10px 12px', background: 'rgba(78,255,145,0.07)', border: '1px solid rgba(78,255,145,0.22)', borderRadius: 5 }}>
+                  <div style={{ fontSize: 13, color: 'var(--v-green)', fontWeight: 600 }}>
+                    ✅ €{Math.round(payslipResult.net_pay).toLocaleString()} {lang === 'en' ? `saved for ${monthLabelMT(TODAY_MONTH, lang)}` : `enregistré pour ${monthLabelMT(TODAY_MONTH, lang)}`}
                   </div>
-                ))}
+                  <button onClick={() => setPayslipResult(null)} style={{ marginTop: 4, fontSize: 10, color: 'var(--v-muted)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', fontFamily: 'var(--font-mono)' }}>
+                    {lang === 'en' ? 'Dismiss' : 'Fermer'}
+                  </button>
+                </div>
+              )}
+              {payslipError && !payslipLoading && (
+                <div style={{ marginBottom: 12, padding: '8px 12px', background: 'rgba(255,204,68,0.06)', border: '1px solid rgba(255,204,68,0.2)', borderRadius: 5 }}>
+                  <div style={{ fontSize: 11, color: 'var(--v-amber)' }}>⚠ {lang === 'en' ? "Couldn't read payslip — enter manually below" : "Lecture impossible — entrez manuellement"}</div>
+                  <button onClick={() => setPayslipError(null)} style={{ marginTop: 4, fontSize: 10, color: 'var(--v-muted)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', fontFamily: 'var(--font-mono)' }}>{lang === 'en' ? 'Dismiss' : 'Fermer'}</button>
+                </div>
+              )}
+              {payslipLoading && (
+                <div style={{ fontSize: 12, color: 'var(--v-muted)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>⏳</span>
+                  {lang === 'en' ? 'Reading payslip…' : 'Lecture de la fiche…'}
+                </div>
+              )}
+
+              {/* Actions row */}
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <button
+                  onClick={() => { setUploadingForMonth(TODAY_MONTH); salaryRowPayslipRef.current?.click() }}
+                  disabled={payslipLoading}
+                  style={{ ...S.btn, fontSize: 12, padding: '8px 18px', opacity: payslipLoading ? 0.6 : 1 }}>
+                  📄 {lang === 'en' ? 'Upload payslip' : 'Importer fiche de paie'}
+                </button>
+                <button
+                  onClick={() => { setEditingMonth(editingMonth === TODAY_MONTH ? null : TODAY_MONTH); setEditMonthValue(piersSalary > 0 ? String(Math.round(piersSalary)) : '') }}
+                  style={{ background: 'none', border: 'none', color: 'var(--v-muted)', fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font-mono)', textDecoration: 'underline' }}>
+                  ✏️ {lang === 'en' ? 'Edit manually' : 'Saisir manuellement'}
+                </button>
+                <button onClick={() => setTab('history')}
+                  style={{ background: 'none', border: 'none', color: 'var(--v-accent)', fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font-mono)', textDecoration: 'underline', marginLeft: 'auto' }}>
+                  {lang === 'en' ? 'View salary history →' : 'Voir l\'historique →'}
+                </button>
               </div>
+
+              {/* Inline manual edit */}
+              {editingMonth === TODAY_MONTH && (
+                <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }}>
+                  <input
+                    type="number" autoFocus
+                    style={{ ...S.input, width: 140 }}
+                    value={editMonthValue}
+                    onChange={e => setEditMonthValue(e.target.value)}
+                    placeholder="€ 0"
+                    onKeyDown={e => { if (e.key === 'Enter') { saveSalaryForMonth(TODAY_MONTH, editMonthValue); } if (e.key === 'Escape') setEditingMonth(null) }}
+                  />
+                  <button style={S.btn} onClick={() => saveSalaryForMonth(TODAY_MONTH, editMonthValue)}>
+                    {lang === 'en' ? 'Save' : 'Enregistrer'}
+                  </button>
+                  <button style={{ ...S.btn, background: 'transparent', color: 'var(--v-muted)', border: '1px solid var(--v-glass-border)' }} onClick={() => setEditingMonth(null)}>✕</button>
+                </div>
+              )}
+              {rowSaveStatus[TODAY_MONTH] === 'ok' && (
+                <div style={{ fontSize: 12, color: 'var(--v-green)', marginTop: 8 }}>✅ {lang === 'en' ? 'Saved!' : 'Enregistré !'}</div>
+              )}
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
@@ -980,14 +971,26 @@ export default function MoneyTime({ onBack, lang, setLang }) {
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(106,180,255,0.1)" vertical={false}/>
                     <XAxis dataKey="month" tick={{ fill: '#7a9bc4', fontSize: 11, fontFamily: 'Share Tech Mono' }} axisLine={false} tickLine={false}/>
                     <YAxis tick={{ fill: '#7a9bc4', fontSize: 10, fontFamily: 'Share Tech Mono' }} axisLine={false} tickLine={false}/>
-                    <Tooltip contentStyle={{ background: '#1a2744', border: '1px solid rgba(106,180,255,0.3)', borderRadius: 6, fontFamily: 'Share Tech Mono', fontSize: 12 }} labelStyle={{ color: '#6ab4ff' }}/>
-                    <Area type="monotone" dataKey="income" stroke="#6ab4ff" fill="url(#incGrad)" strokeWidth={2}/>
-                    <Area type="monotone" dataKey="expenses" stroke="#ff4e4e" fill="url(#expGrad)" strokeWidth={2}/>
-                    <Area type="monotone" dataKey="savings" stroke="#4eff91" fill="none" strokeWidth={1.5} strokeDasharray="4 4"/>
+                    <Tooltip
+                      contentStyle={{ background: '#1a2744', border: '1px solid rgba(106,180,255,0.3)', borderRadius: 6, fontFamily: 'Share Tech Mono', fontSize: 12 }}
+                      labelStyle={{ color: '#6ab4ff' }}
+                      formatter={(value, name, props) => {
+                        if (name === 'income') {
+                          const { piers = 0, canelle = 0 } = props.payload || {}
+                          return [`€${value.toLocaleString()} (Piers €${piers.toLocaleString()} | Canelle €${canelle.toLocaleString()})`, lang === 'en' ? 'Combined Income' : 'Revenus combinés']
+                        }
+                        if (name === 'expenses') return [`€${value.toLocaleString()}`, lang === 'en' ? 'Expenses' : 'Dépenses']
+                        if (name === 'savings') return [`€${value.toLocaleString()}`, lang === 'en' ? 'Saved' : 'Épargné']
+                        return [value, name]
+                      }}
+                    />
+                    <Area type="monotone" dataKey="income" stroke="#6ab4ff" fill="url(#incGrad)" strokeWidth={2} name="income"/>
+                    <Area type="monotone" dataKey="expenses" stroke="#ff4e4e" fill="url(#expGrad)" strokeWidth={2} name="expenses"/>
+                    <Area type="monotone" dataKey="savings" stroke="#4eff91" fill="none" strokeWidth={1.5} strokeDasharray="4 4" name="savings"/>
                   </AreaChart>
                 </ResponsiveContainer>
                 <div style={{ display: 'flex', gap: 20, justifyContent: 'center', marginTop: 8 }}>
-                  {[['#6ab4ff', lang === 'en' ? 'Income' : 'Revenus'], ['#ff4e4e', lang === 'en' ? 'Expenses' : 'Dépenses'], ['#4eff91', lang === 'en' ? 'Saved' : 'Épargné']].map(([c, l]) => (
+                  {[['#6ab4ff', lang === 'en' ? 'Combined Income' : 'Revenus combinés'], ['#ff4e4e', lang === 'en' ? 'Expenses' : 'Dépenses'], ['#4eff91', lang === 'en' ? 'Saved' : 'Épargné']].map(([c, l]) => (
                     <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--v-muted)' }}>
                       <div style={{ width: 12, height: 2, background: c }}/>
                       {l}
@@ -1326,9 +1329,6 @@ export default function MoneyTime({ onBack, lang, setLang }) {
         {/* ── HISTORY TAB — Piers salary ── */}
         {tab === 'history' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }} className="page-enter">
-            {/* Shared file input for per-row payslip scan */}
-            <input ref={salaryRowPayslipRef} type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: 'none' }} onChange={handleRowPayslipFile}/>
-
             {/* Title */}
             <div style={{ ...S.card, borderColor: 'rgba(106,180,255,0.3)' }}>
               <div style={{ fontFamily: 'var(--font-vista)', fontSize: 22, color: 'var(--v-accent)', marginBottom: 4 }}>📋 PIERS SALARY HISTORY</div>
