@@ -153,7 +153,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
   const nav = NAV_LABELS[lang]
 
   const [tab, setTab] = useState('dashboard')
-  const [income, setIncome] = useState([])
+  // Single source: all income from Supabase. 'income' is derived by year filter below.
   const [allIncome, setAllIncome] = useState([])
   const [loading, setLoading] = useState(true)
   const [urssafCat, setUrssafCat] = useState('bnc_services')
@@ -199,7 +199,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
   const [form, setForm] = useState({ client:'', amount:'', date:format(new Date(),'yyyy-MM-dd'), cat:'bnc_services', desc:'' })
 
   // ── Load ───────────────────────────────────────────────────────────
-  useEffect(() => { loadIncome() }, [selectedYear])
+  // Single source of truth: one query, all income, both History and Progress derive from it.
   useEffect(() => {
     loadAllIncome()
     loadWishlist()
@@ -210,17 +210,15 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
     }
   }, [])
 
-  async function loadIncome() {
-    setLoading(true)
-    const { data } = await supabase.from('cv_income')
-      .select('*').gte('date',`${selectedYear}-01-01`).lte('date',`${selectedYear}-12-31`)
-      .order('date',{ ascending:false })
-    setIncome(data||[])
-    setLoading(false)
-  }
   async function loadAllIncome() {
-    const { data } = await supabase.from('cv_income').select('*').gte('date','2025-05-01').order('date')
-    setAllIncome(data||[])
+    setLoading(true)
+    const { data, error } = await supabase
+      .from('cv_income')
+      .select('*')
+      .order('date', { ascending: false })
+    console.log('[cv_income] query result:', { count: data?.length ?? 0, error, rows: data })
+    setAllIncome(data || [])
+    setLoading(false)
   }
   async function loadWishlist() {
     const { data } = await supabase.from('cv_wishlist').select('*').order('created_at')
@@ -312,7 +310,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
     localStorage.setItem('cv_onboarding_done','1')
     setOnboardingMode(false); setOnboardingSaving(false)
     setOnboardingSaved(true); setOnboardingRows({})
-    loadIncome(); loadAllIncome()
+    loadAllIncome()
     setTimeout(() => setOnboardingSaved(false), 5000)
   }
 
@@ -329,7 +327,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
       amount_company:company, amount_salary:salary,
       date:form.date, category:form.cat, description:form.desc
     }).select().single()
-    if (data) { setIncome(prev=>[data,...prev]); loadAllIncome() }
+    if (data) { loadAllIncome() }
     setForm({ client:'', amount:'', date:format(new Date(),'yyyy-MM-dd'), cat:'bnc_services', desc:'' })
     if (wishlistPct > 0) {
       const alloc = net * (wishlistPct/100)
@@ -376,6 +374,10 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
   }
 
   // ── Derived ────────────────────────────────────────────────────────
+  // 'income' is allIncome filtered to selectedYear — History tab and dashboard YTD stats use this.
+  // Progress tab uses allIncome directly. Both read from the same Supabase query.
+  const income = allIncome.filter(r => r.date?.startsWith(String(selectedYear)))
+
   const formRate = URSSAF_CATEGORIES.find(c=>c.id===form.cat)?.rate||0.22
   const previewGross = parseFloat(form.amount)||0
   const previewUrssaf = previewGross * formRate
