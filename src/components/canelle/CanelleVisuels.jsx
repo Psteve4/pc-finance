@@ -102,11 +102,7 @@ const CV_PRIORITY_COLORS = { dream: P.orange, soon: P.pink, someday: P.blue }
 const CV_PRIORITY_ICONS  = { dream: '⭐', soon: '🔜', someday: '☁️' }
 const CV_CAT_ICONS       = { gear: '🔧', software: '💻', other: '📦' }
 
-const LOCAL_RECURRING_DEFAULTS = [
-  { id: 'c1', name: 'Canva',   amount: 14.99, active: true },
-  { id: 'c2', name: 'Notion',  amount: 8.00,  active: true },
-  { id: 'c3', name: 'ChatGPT', amount: 20.00, active: true },
-]
+// No seed data — expenses start empty. User adds their own subscriptions.
 
 // ── Small SVG circle ──────────────────────────────────────────────────
 function CircleProgress({ pct, color = P.orange, size = 52 }) {
@@ -232,23 +228,22 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
   }
 
   async function loadCVRecurring() {
-    // Show local data immediately
+    // Show locally-saved data immediately — but ignore the old auto-seeded defaults (c1/c2/c3)
     const localSaved = localStorage.getItem('cv_recurring_local')
-    setCvRecurring(localSaved ? JSON.parse(localSaved) : LOCAL_RECURRING_DEFAULTS)
-    if (!localSaved) localStorage.setItem('cv_recurring_local', JSON.stringify(LOCAL_RECURRING_DEFAULTS))
-    // Try Supabase
+    if (localSaved) {
+      const parsed = JSON.parse(localSaved)
+      // Strip out the old hardcoded seed IDs if they were auto-inserted
+      const clean = parsed.filter(r => !['c1','c2','c3'].includes(r.id))
+      setCvRecurring(clean)
+      if (clean.length !== parsed.length) localStorage.setItem('cv_recurring_local', JSON.stringify(clean))
+    }
+    // Sync from Supabase — start empty if nothing saved
     try {
       const { data, error } = await supabase.from('cv_recurring').select('*').order('created_at')
-      if (error) return // keep local
-      if (data.length === 0) {
-        const payload = LOCAL_RECURRING_DEFAULTS.map(({ name, amount, active }) => ({ name, amount, active }))
-        const { data: ins } = await supabase.from('cv_recurring').insert(payload).select()
-        if (ins) { setCvRecurring(ins); localStorage.setItem('cv_recurring_local', JSON.stringify(ins)) }
-      } else {
-        setCvRecurring(data)
-        localStorage.setItem('cv_recurring_local', JSON.stringify(data))
-      }
-    } catch { /* keep local */ }
+      if (error) return
+      setCvRecurring(data || [])
+      localStorage.setItem('cv_recurring_local', JSON.stringify(data || []))
+    } catch { /* keep local if Supabase unavailable */ }
   }
 
   // ── Recurring actions ──────────────────────────────────────────────
@@ -626,10 +621,17 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
 
             {/* Add income */}
             <div ref={addIncomeRef} style={S.accentCard(P.orange)}>
-              <div style={{ ...S.label, color:P.orange, marginBottom:16 }}>+ {t.add_income}</div>
+              <div style={{ marginBottom:16 }}>
+                <div style={{ ...S.label, color:P.orange }}>+ {t.add_income}</div>
+                <div style={{ fontSize:14, color:P.muted, marginTop:4 }}>
+                  {lang==='en'
+                    ? 'Add each payment received from your clients here — URSSAF and splits are calculated automatically.'
+                    : 'Ajoutez chaque paiement reçu de vos clients ici — l\'URSSAF et les répartitions sont calculés automatiquement.'}
+                </div>
+              </div>
               <div style={{ display:'grid', gridTemplateColumns:'2fr 1.5fr 1fr 1.5fr 2fr', gap:12, marginBottom:12 }}>
-                <div><div style={S.label}>{t.client}</div><input style={S.input} value={form.client} onChange={e=>setForm(p=>({...p,client:e.target.value}))} placeholder="Client"/></div>
-                <div><div style={S.label}>{t.amount}</div><input style={S.input} type="number" value={form.amount} onChange={e=>setForm(p=>({...p,amount:e.target.value}))} placeholder="€ 0"/></div>
+                <div><div style={S.label}>{t.client}</div><input style={S.input} value={form.client} onChange={e=>setForm(p=>({...p,client:e.target.value}))} placeholder={lang==='en'?'Client or company name':'Nom du client ou entreprise'}/></div>
+                <div><div style={S.label}>{t.amount} — {lang==='en'?'gross, before URSSAF':'brut, avant URSSAF'}</div><input style={S.input} type="number" value={form.amount} onChange={e=>setForm(p=>({...p,amount:e.target.value}))} placeholder="0.00"/></div>
                 <div><div style={S.label}>{t.date}</div><input style={S.input} type="date" value={form.date} onChange={e=>setForm(p=>({...p,date:e.target.value}))}/></div>
                 <div><div style={S.label}>{t.urssaf_rate}</div>
                   <select style={S.input} value={form.cat} onChange={e=>setForm(p=>({...p,cat:e.target.value}))}>
@@ -637,8 +639,10 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
                   </select>
                 </div>
                 <div style={{ display:'flex', gap:8, alignItems:'flex-end' }}>
-                  <input style={S.input} value={form.desc} onChange={e=>setForm(p=>({...p,desc:e.target.value}))} placeholder="Note (opt.)"/>
-                  <button style={{ ...S.btn, whiteSpace:'nowrap' }} onClick={addIncome}>{t.add}</button>
+                  <input style={S.input} value={form.desc} onChange={e=>setForm(p=>({...p,desc:e.target.value}))} placeholder={lang==='en'?'Optional note':'Note optionnelle'}/>
+                  <button style={{ ...S.btn, whiteSpace:'nowrap', fontSize:15, padding:'13px 28px' }} onClick={addIncome}>
+                    {lang==='en'?'✓ Record':'✓ Enregistrer'}
+                  </button>
                 </div>
               </div>
               {previewGross>0 && (
