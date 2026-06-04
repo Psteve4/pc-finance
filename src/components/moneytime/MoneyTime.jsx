@@ -81,6 +81,19 @@ const TIPS = {
 
 const TODAY_MONTH = format(new Date(), 'yyyy-MM')
 
+// Months from May 2025 to current month (most recent first)
+const MT_SALARY_MONTHS = (() => {
+  const months = []
+  let d = new Date(2025, 4, 1)
+  const stop = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+  while (d <= stop) { months.unshift(format(d, 'yyyy-MM')); d = new Date(d.getFullYear(), d.getMonth() + 1, 1) }
+  return months
+})()
+
+const MONTH_EN = { '01':'January','02':'February','03':'March','04':'April','05':'May','06':'June','07':'July','08':'August','09':'September','10':'October','11':'November','12':'December' }
+const MONTH_FR_MT = { '01':'Janvier','02':'Février','03':'Mars','04':'Avril','05':'Mai','06':'Juin','07':'Juillet','08':'Août','09':'Septembre','10':'Octobre','11':'Novembre','12':'Décembre' }
+const monthLabelMT = (ym, lang='en') => `${(lang==='en'?MONTH_EN:MONTH_FR_MT)[ym.slice(5)]} ${ym.slice(0,4)}`
+
 export default function MoneyTime({ onBack, lang, setLang }) {
   const t = T[lang]
   const [tab, setTab] = useState('overview')
@@ -107,6 +120,19 @@ export default function MoneyTime({ onBack, lang, setLang }) {
   const [payslipError, setPayslipError] = useState(null)
   const payslipInputRef = useRef(null)
 
+  // Salary history
+  const [salaryHistory, setSalaryHistory] = useState([])
+  const [salaryOnboardingMode, setSalaryOnboardingMode] = useState(false)
+  const [salaryOnboardingRows, setSalaryOnboardingRows] = useState({})
+  const [salaryOnboardingSaving, setSalaryOnboardingSaving] = useState(false)
+  const [editingMonth, setEditingMonth] = useState(null)
+  const [editMonthValue, setEditMonthValue] = useState('')
+  const [editMonthNote, setEditMonthNote] = useState('')
+  const [quickAddValue, setQuickAddValue] = useState('')
+  const [uploadingForMonth, setUploadingForMonth] = useState(null) // which row is using the shared file input
+  const [rowPayslipLoading, setRowPayslipLoading] = useState({})
+  const salaryRowPayslipRef = useRef(null)
+
   // Budget slices (adjustable allocations as % of income)
   const [budgetSlices, setBudgetSlices] = useState(() => {
     const saved = localStorage.getItem('mt_budget_slices')
@@ -129,6 +155,7 @@ export default function MoneyTime({ onBack, lang, setLang }) {
   useEffect(() => {
     loadRecurring()
     loadWishlistMT()
+    loadSalaryHistory()
   }, [])
 
   async function loadData() {
@@ -256,6 +283,104 @@ export default function MoneyTime({ onBack, lang, setLang }) {
     const amt = parseFloat(newSalary) || 0
     await supabase.from('mt_salaries').upsert({ month: currentMonth, person: 'piers', amount: amt }, { onConflict: 'month,person' })
     setPiersSalary(amt)
+  }
+
+  // ── Salary history ──────────────────────────────────────────────────
+  async function loadSalaryHistory() {
+    const { data } = await supabase.from('mt_salaries')
+      .select('*').eq('person', 'piers').gte('month', '2025-05')
+      .order('month', { ascending: false })
+    const hist = data || []
+    setSalaryHistory(hist)
+    // Update current month salary
+    const thisMonth = hist.find(s => s.month === TODAY_MONTH)
+    if (thisMonth) { setPiersSalary(thisMonth.amount); setNewSalary(thisMonth.amount.toString()) }
+    // Pre-fill quickAdd with last month's salary
+    const lastMonth = hist.find(s => s.month !== TODAY_MONTH)
+    if (lastMonth) setQuickAddValue(lastMonth.amount.toString())
+    // Onboarding check
+    if (hist.length === 0 && !localStorage.getItem('mt_salary_onboarding_done')) {
+      setSalaryOnboardingMode(true)
+    }
+  }
+
+  async function saveSalaryForMonth(month, amount, note = '') {
+    const amt = parseFloat(amount) || 0
+    const payload = { month, person: 'piers', amount: amt, notes: note || null }
+    await supabase.from('mt_salaries').upsert(payload, { onConflict: 'month,person' })
+    if (month === TODAY_MONTH || month === currentMonth) { setPiersSalary(amt); setNewSalary(amt.toString()) }
+    await loadSalaryHistory()
+    setEditingMonth(null)
+  }
+
+  async function deleteSalaryForMonth(month) {
+    if (!window.confirm(`Supprimer le salaire de ${monthLabelMT(month, lang)} ?`)) return
+    await supabase.from('mt_salaries').delete().eq('month', month).eq('person', 'piers')
+    if (month === TODAY_MONTH || month === currentMonth) { setPiersSalary(0); setNewSalary('') }
+    await loadSalaryHistory()
+  }
+
+  async function saveOnboardingSalaries() {
+    setSalaryOnboardingSaving(true)
+    const rows = Object.entries(salaryOnboardingRows).filter(([, v]) => v && parseFloat(v.amount) > 0)
+    for (const [month, { amount, note }] of rows) {
+      await supabase.from('mt_salaries').upsert(
+        { month, person: 'piers', amount: parseFloat(amount), notes: note || 'Payslip' },
+        { onConflict: 'month,person' }
+      )
+    }
+    localStorage.setItem('mt_salary_onboarding_done', '1')
+    setSalaryOnboardingMode(false)
+    setSalaryOnboardingSaving(false)
+    await loadSalaryHistory()
+  }
+
+  function handleRowPayslipClick(month) {
+    setUploadingForMonth(month)
+    salaryRowPayslipRef.current?.click()
+  }
+
+  async function handleRowPayslipFile(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    const month = uploadingForMonth
+    if (!month) return
+    setRowPayslipLoading(prev => ({ ...prev, [month]: true }))
+    try {
+      const reader = new FileReader()
+      const base64 = await new Promise((res, rej) => {
+        reader.onload = () => res(reader.result.split(',')[1])
+        reader.onerror = rej
+        reader.readAsDataURL(file)
+      })
+      const isPDF = file.type === 'application/pdf'
+      const block = isPDF
+        ? { type:'document', source:{ type:'base64', media_type:'application/pdf', data:base64 } }
+        : { type:'image',    source:{ type:'base64', media_type:file.type||'image/jpeg', data:base64 } }
+      const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', 'x-api-key':apiKey, 'anthropic-version':'2023-06-01', 'anthropic-dangerous-direct-browser-access':'true' },
+        body: JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:256,
+          system:'You are a payslip parser. Extract the net pay (take-home amount after all deductions). Return ONLY JSON: {"net_pay": 0000.00}',
+          messages:[{ role:'user', content:[block, { type:'text', text:'Parse this payslip.' }] }] })
+      })
+      const apiData = await res.json()
+      const text = (apiData.content?.[0]?.text || '').trim()
+      const parsed = JSON.parse(text.match(/\{[\s\S]*?\}/)?.[0] || text)
+      if (typeof parsed.net_pay === 'number') {
+        const val = String(Math.round(parsed.net_pay))
+        if (salaryOnboardingMode) {
+          setSalaryOnboardingRows(prev => ({ ...prev, [month]: { ...prev[month], amount: val } }))
+        } else {
+          setEditingMonth(month)
+          setEditMonthValue(val)
+        }
+      }
+    } catch(err) { console.error('Payslip error:', err) }
+    setRowPayslipLoading(prev => ({ ...prev, [month]: false }))
+    setUploadingForMonth(null)
   }
 
   async function addExpense() {
@@ -548,6 +673,77 @@ export default function MoneyTime({ onBack, lang, setLang }) {
 
   const foodPct = Math.min(100, (foodExpenses / FOOD_BUDGET) * 100)
 
+  // Salary summary derived values
+  const histNet = (m) => salaryHistory.find(s => s.month === m)?.amount || 0
+  const last6Salaries = MT_SALARY_MONTHS.slice(0, 6).map(m => histNet(m)).filter(v => v > 0)
+  const avgSalary = last6Salaries.length > 0 ? Math.round(last6Salaries.reduce((a,b)=>a+b,0) / last6Salaries.length) : 0
+  const bestSalaryMonth = [...MT_SALARY_MONTHS].sort((a,b) => histNet(b) - histNet(a))[0]
+  const totalEarned = MT_SALARY_MONTHS.reduce((s,m) => s + histNet(m), 0)
+  const todayNet = histNet(TODAY_MONTH)
+  const prevMonthMT = MT_SALARY_MONTHS[1] || ''
+  const prevNet = histNet(prevMonthMT)
+  const salaryMoM = prevNet > 0 && todayNet > 0 ? Math.round((todayNet - prevNet) / prevNet * 100) : null
+
+  // ── SALARY ONBOARDING SCREEN ──────────────────────────────────────
+  if (salaryOnboardingMode) {
+    return (
+      <div className="vista" style={{ ...S.container, display:'flex', flexDirection:'column', alignItems:'center', padding:'40px 24px' }}>
+        {/* Shared file input for payslip scanning */}
+        <input ref={salaryRowPayslipRef} type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display:'none' }} onChange={handleRowPayslipFile}/>
+
+        <div style={{ width:'100%', maxWidth:680 }}>
+          <div style={{ textAlign:'center', marginBottom:32 }}>
+            <div style={{ fontFamily:'var(--font-vista)', fontSize:48, color:'var(--v-accent)', marginBottom:8 }}>MONEY TIME</div>
+            <div style={{ fontSize:22, fontWeight:700, color:'var(--v-text)', marginBottom:8 }}>👋 Piers, let's set up your salary history</div>
+            <div style={{ fontSize:14, color:'var(--v-muted)', lineHeight:1.7 }}>
+              Add your net salary for each month from May 2025 to today — you only do this once.<br/>
+              You can upload a payslip 📄 to auto-fill each amount.
+            </div>
+          </div>
+
+          <div style={{ ...S.card, marginBottom:20 }}>
+            <div style={{ display:'grid', gridTemplateColumns:'140px 1fr 1fr auto', gap:10, marginBottom:10 }}>
+              {['Month','Net salary (€)','Note','Payslip'].map(h=>(
+                <div key={h} style={{ ...S.label, marginBottom:0, fontSize:10 }}>{h}</div>
+              ))}
+            </div>
+            <div style={{ display:'flex', flexDirection:'column', gap:6, maxHeight:500, overflowY:'auto' }}>
+              {MT_SALARY_MONTHS.map(ym=>{
+                const row = salaryOnboardingRows[ym] || {}
+                const set = p => setSalaryOnboardingRows(prev=>({ ...prev, [ym]:{ ...prev[ym], ...p } }))
+                const isLoading = rowPayslipLoading[ym]
+                return (
+                  <div key={ym} style={{ display:'grid', gridTemplateColumns:'140px 1fr 1fr auto', gap:10, alignItems:'center' }}>
+                    <div style={{ fontSize:13, color:'var(--v-text)', fontWeight:500 }}>{monthLabelMT(ym, lang)}</div>
+                    <input style={{ ...S.input, padding:'7px 10px', fontSize:13 }} type="number" placeholder="€ 0"
+                      value={row.amount||''} onChange={e=>set({ amount:e.target.value })}/>
+                    <input style={{ ...S.input, padding:'7px 10px', fontSize:13 }} placeholder="Payslip"
+                      value={row.note||''} onChange={e=>set({ note:e.target.value })}/>
+                    <button onClick={()=>handleRowPayslipClick(ym)} disabled={isLoading}
+                      style={{ ...S.btn, padding:'7px 10px', fontSize:11, opacity:isLoading?0.6:1, whiteSpace:'nowrap' }}>
+                      {isLoading ? '⏳' : '📄 Scan'}
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:14 }}>
+            <button style={{ ...S.btn, fontSize:15, padding:'14px 36px', opacity:salaryOnboardingSaving?0.6:1 }}
+              onClick={saveOnboardingSalaries} disabled={salaryOnboardingSaving}>
+              {salaryOnboardingSaving ? 'Saving…' : '💾 Save all & start'}
+            </button>
+            <button style={{ background:'none', border:'none', color:'var(--v-muted)', fontSize:13, cursor:'pointer', textDecoration:'underline', fontFamily:'var(--font-mono)' }}
+              onClick={()=>{ localStorage.setItem('mt_salary_onboarding_done','1'); setSalaryOnboardingMode(false) }}>
+              Skip — I'll add history later
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="vista" style={S.container}>
       {/* Header */}
@@ -623,92 +819,116 @@ export default function MoneyTime({ onBack, lang, setLang }) {
                   : "Le salaire de Piers arrive généralement avant le 6 — la répartition proportionnelle se mettra à jour automatiquement."}
               </div>
             )}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
-              <div style={S.card}>
-                {/* Hidden file input */}
-                <input
-                  ref={payslipInputRef}
-                  type="file"
-                  accept=".pdf,.jpg,.jpeg,.png"
-                  style={{ display: 'none' }}
-                  onChange={handlePayslipUpload}
-                />
+            {/* Shared file input for per-row payslip scanning */}
+            <input ref={salaryRowPayslipRef} type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display:'none' }} onChange={handleRowPayslipFile}/>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                  <div style={S.label}>{t.piers_income}</div>
-                  <button
-                    onClick={() => payslipInputRef.current?.click()}
-                    disabled={payslipLoading}
-                    style={{
-                      background: 'transparent', border: '1px solid rgba(106,180,255,0.25)',
-                      borderRadius: 4, padding: '3px 8px', fontSize: 10, color: 'var(--v-muted)',
-                      cursor: 'pointer', fontFamily: 'var(--font-mono)', letterSpacing: '0.06em',
-                      opacity: payslipLoading ? 0.5 : 1,
-                    }}
-                    title={lang === 'en' ? 'Upload payslip to auto-fill salary' : 'Importer fiche de paie'}
-                  >
-                    📄 {lang === 'en' ? 'Upload payslip' : 'Fiche de paie'}
-                  </button>
+            {/* ── SALARY HISTORY TABLE ── */}
+            <div style={S.card}>
+              <div style={{ ...S.label, marginBottom: 14 }}>{lang === 'en' ? 'Salary history — Piers' : 'Historique salaire — Piers'}</div>
+
+              {/* Quick-add current month */}
+              <div style={{ background: 'rgba(106,180,255,0.1)', border: '1px solid rgba(106,180,255,0.3)', borderRadius: 6, padding: '12px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ flex: 1, fontSize: 13, color: 'var(--v-accent)', fontWeight: 600 }}>
+                  {lang === 'en' ? 'Current month:' : 'Mois actuel :'} {monthLabelMT(TODAY_MONTH, lang)}
                 </div>
-
-                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                  <input style={S.input} type="number" value={newSalary} onChange={e => setNewSalary(e.target.value)} placeholder="€ 0" />
-                  <button style={S.btn} onClick={saveSalary}>▶</button>
-                </div>
-
-                {/* Loading */}
-                {payslipLoading && (
-                  <div style={{ fontSize: 11, color: 'var(--v-muted)', marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>⏳</span>
-                    {lang === 'en' ? 'Reading payslip…' : 'Lecture de la fiche…'}
-                  </div>
-                )}
-
-                {/* Success result */}
-                {payslipResult && !payslipLoading && (
-                  <div style={{ marginTop: 10, padding: '10px 12px', background: 'rgba(78,255,145,0.07)', border: '1px solid rgba(78,255,145,0.22)', borderRadius: 5 }}>
-                    <div style={{ fontSize: 12, color: 'var(--v-green)', fontWeight: 600, marginBottom: 6 }}>
-                      ✅ {lang === 'en'
-                        ? `Found net pay: €${payslipResult.net_pay?.toLocaleString()} — click ▶ to save`
-                        : `Net trouvé : €${payslipResult.net_pay?.toLocaleString()} — cliquez ▶ pour enregistrer`}
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 11, color: 'var(--v-muted)' }}>
-                      {payslipResult.gross_pay != null && (
-                        <span>{lang === 'en' ? 'Gross' : 'Brut'}: €{payslipResult.gross_pay.toLocaleString()}</span>
-                      )}
-                      {payslipResult.gross_pay != null && payslipResult.net_pay != null && (
-                        <span>{lang === 'en' ? 'Deductions' : 'Charges'}: €{Math.round(payslipResult.gross_pay - payslipResult.net_pay).toLocaleString()}</span>
-                      )}
-                      {payslipResult.period && (
-                        <span>{lang === 'en' ? 'Period' : 'Période'}: {payslipResult.period}</span>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => setPayslipResult(null)}
-                      style={{ marginTop: 6, fontSize: 10, color: 'var(--v-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline', fontFamily: 'var(--font-mono)' }}
-                    >{lang === 'en' ? 'Dismiss' : 'Fermer'}</button>
-                  </div>
-                )}
-
-                {/* Error */}
-                {payslipError && !payslipLoading && (
-                  <div style={{ marginTop: 8, padding: '8px 10px', background: 'rgba(255,204,68,0.06)', border: '1px solid rgba(255,204,68,0.2)', borderRadius: 5 }}>
-                    <div style={{ fontSize: 11, color: 'var(--v-amber)', fontWeight: 600 }}>
-                      ⚠ {lang === 'en' ? "Couldn't read payslip automatically — please enter manually" : "Lecture automatique impossible — veuillez entrer manuellement"}
-                    </div>
-                    <div style={{ fontSize: 10, color: 'var(--v-muted)', marginTop: 4, fontFamily: 'var(--font-mono)', wordBreak: 'break-all' }}>
-                      {payslipError}
-                    </div>
-                    <button
-                      onClick={() => setPayslipError(null)}
-                      style={{ marginTop: 4, fontSize: 10, color: 'var(--v-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline', fontFamily: 'var(--font-mono)' }}
-                    >{lang === 'en' ? 'Dismiss' : 'Fermer'}</button>
-                  </div>
-                )}
-
-                <div style={{ ...S.big, marginTop: 8 }}>€{Math.round(piersSalary).toLocaleString()}</div>
+                <input style={{ ...S.input, width: 120, fontSize: 13 }} type="number"
+                  value={quickAddValue} onChange={e => setQuickAddValue(e.target.value)}
+                  placeholder={prevNet > 0 ? `€${Math.round(prevNet)} (suggestion)` : '€ 0'}/>
+                <button style={{ ...S.btn, fontSize: 11, padding: '6px 14px', whiteSpace: 'nowrap' }}
+                  onClick={() => { saveSalaryForMonth(TODAY_MONTH, quickAddValue); setQuickAddValue('') }}>
+                  💾 {lang === 'en' ? 'Save' : 'Enregistrer'}
+                </button>
+                <button onClick={() => handleRowPayslipClick(TODAY_MONTH)} disabled={!!rowPayslipLoading[TODAY_MONTH]}
+                  style={{ ...S.btn, fontSize: 11, padding: '6px 10px', background: 'transparent', border: '1px solid rgba(106,180,255,0.4)', color: 'var(--v-accent)', opacity: rowPayslipLoading[TODAY_MONTH] ? 0.5 : 1 }}>
+                  {rowPayslipLoading[TODAY_MONTH] ? '⏳' : '📄'}
+                </button>
               </div>
 
+              {/* History table */}
+              <div style={{ maxHeight: 380, overflowY: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead><tr>
+                    {['Month','Net salary','Notes',''].map(h => (
+                      <th key={h} style={{ padding: '7px 10px', textAlign: 'left', borderBottom: '1px solid var(--v-glass-border)', fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--v-muted)' }}>{h}</th>
+                    ))}
+                  </tr></thead>
+                  <tbody>
+                    {MT_SALARY_MONTHS.map(ym => {
+                      const entry = salaryHistory.find(s => s.month === ym)
+                      const isEditing = editingMonth === ym
+                      const isLoading = !!rowPayslipLoading[ym]
+                      return (
+                        <tr key={ym} style={{ borderBottom: '1px solid rgba(106,180,255,0.06)' }}>
+                          <td style={{ padding: '9px 10px', color: ym === TODAY_MONTH ? 'var(--v-accent)' : 'var(--v-text)', fontWeight: ym === TODAY_MONTH ? 600 : 400 }}>
+                            {monthLabelMT(ym, lang)}{ym === TODAY_MONTH ? ' ●' : ''}
+                          </td>
+                          <td style={{ padding: '9px 10px' }}>
+                            {isEditing ? (
+                              <input style={{ ...S.input, width: 110, fontSize: 13 }} type="number" autoFocus
+                                value={editMonthValue} onChange={e => setEditMonthValue(e.target.value)}
+                                onKeyDown={e => { if(e.key==='Enter') saveSalaryForMonth(ym, editMonthValue, editMonthNote); if(e.key==='Escape') setEditingMonth(null) }}/>
+                            ) : (
+                              <span style={{ color: entry ? 'var(--v-green)' : 'var(--v-muted)', fontFamily: entry ? 'var(--font-vista)' : 'inherit', fontSize: entry ? 18 : 13 }}>
+                                {entry ? `€${Math.round(entry.amount).toLocaleString()}` : '—'}
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ padding: '9px 10px', color: 'var(--v-muted)', fontSize: 12 }}>
+                            {isEditing ? (
+                              <input style={{ ...S.input, width: 120, fontSize: 12 }} placeholder="Payslip"
+                                value={editMonthNote} onChange={e => setEditMonthNote(e.target.value)}/>
+                            ) : (
+                              <span>{entry?.notes || (entry ? '' : '')}</span>
+                            )}
+                          </td>
+                          <td style={{ padding: '9px 6px', whiteSpace: 'nowrap' }}>
+                            {isEditing ? (
+                              <div style={{ display: 'flex', gap: 4 }}>
+                                <button style={{ ...S.btn, padding: '4px 10px', fontSize: 11 }} onClick={() => saveSalaryForMonth(ym, editMonthValue, editMonthNote)}>💾</button>
+                                <button style={{ ...S.btn, background: 'transparent', color: 'var(--v-muted)', padding: '4px 8px', fontSize: 11 }} onClick={() => setEditingMonth(null)}>✕</button>
+                              </div>
+                            ) : (
+                              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                                {!entry && (
+                                  <button style={{ ...S.btn, padding: '3px 10px', fontSize: 11, background: 'rgba(106,180,255,0.15)', color: 'var(--v-accent)', border: '1px solid rgba(106,180,255,0.3)' }}
+                                    onClick={() => { setEditingMonth(ym); setEditMonthValue(''); setEditMonthNote('') }}>
+                                    Ajouter ▶
+                                  </button>
+                                )}
+                                {entry && <button onClick={() => { setEditingMonth(ym); setEditMonthValue(String(Math.round(entry.amount))); setEditMonthNote(entry.notes||'') }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, opacity: 0.7 }}>✏️</button>}
+                                {entry && <button onClick={() => deleteSalaryForMonth(ym)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, opacity: 0.7 }}>🗑️</button>}
+                                <button onClick={() => handleRowPayslipClick(ym)} disabled={isLoading}
+                                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, opacity: isLoading ? 0.5 : 0.6 }}>
+                                  {isLoading ? '⏳' : '📄'}
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Salary summary cards */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--v-glass-border)' }}>
+                {[
+                  { label: lang==='en'?'Avg (6 months)':'Moy. 6 mois', val: avgSalary > 0 ? `€${avgSalary.toLocaleString()}` : '—', color: 'var(--v-accent)' },
+                  { label: lang==='en'?'Best month':'Meilleur mois', val: bestSalaryMonth && histNet(bestSalaryMonth) > 0 ? `€${Math.round(histNet(bestSalaryMonth)).toLocaleString()}` : '—', sub: bestSalaryMonth && histNet(bestSalaryMonth) > 0 ? monthLabelMT(bestSalaryMonth, lang).slice(0,8) : '', color: 'var(--v-green)' },
+                  { label: lang==='en'?'Total since May 25':'Total depuis mai 25', val: totalEarned > 0 ? `€${Math.round(totalEarned).toLocaleString()}` : '—', color: 'var(--v-text)' },
+                  { label: lang==='en'?'Month vs prev':'Mois vs précédent', val: salaryMoM !== null ? `${salaryMoM>=0?'+':''}${salaryMoM}%` : '—', color: salaryMoM === null ? 'var(--v-muted)' : salaryMoM >= 0 ? 'var(--v-green)' : 'var(--v-red)' },
+                ].map(({ label, val, color, sub }) => (
+                  <div key={label}>
+                    <div style={{ fontSize: 9, color: 'var(--v-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 3 }}>{label}</div>
+                    <div style={{ fontFamily: 'var(--font-vista)', fontSize: 18, color }}>{val}</div>
+                    {sub && <div style={{ fontSize: 10, color: 'var(--v-muted)', marginTop: 2 }}>{sub}</div>}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
               <div style={S.card}>
                 <div style={S.label}>{t.canelle_income}</div>
                 <div style={{ ...S.big, marginTop: 12 }}>€{Math.round(canelleIncome).toLocaleString()}</div>
