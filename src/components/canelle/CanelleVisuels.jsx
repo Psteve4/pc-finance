@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase.js'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line, Cell, ReferenceLine } from 'recharts'
-import { format, subMonths } from 'date-fns'
+import { format, subMonths, addMonths, startOfMonth } from 'date-fns'
 
 // ── URSSAF rate history (taux par mois) ──────────────────────────────
 const URSSAF_RATE_HISTORY = {
@@ -288,6 +288,13 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
     return localStorage.getItem(key) === '1'
   })
 
+  // Calendar & account overview
+  const [calendarMonth, setCalendarMonth] = useState(format(new Date(), 'yyyy-MM'))
+  const [calendarDayDetail, setCalendarDayDetail] = useState(null) // 'yyyy-MM-dd' of clicked day
+  const [showHistoryDropdown, setShowHistoryDropdown] = useState(false)
+  const [accountBalances, setAccountBalances] = useState({})
+  const [accountUpdatedAt, setAccountUpdatedAt] = useState({})
+
   // Late payment banners dismissed per draft id
   const [lateDismissed, setLateDismissed] = useState(() => {
     try { return JSON.parse(localStorage.getItem('cv_late_dismissed') || '{}') } catch { return {} }
@@ -306,6 +313,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
     loadAllIncome()
     loadWishlist()
     loadCVRecurring()
+    loadAccountBalances()
     if (!localStorage.getItem('cv_onboarding_done')) {
       supabase.from('cv_income').select('id',{ count:'exact', head:true })
         .then(({ count }) => { if ((count||0) === 0) setOnboardingMode(true) })
@@ -344,6 +352,17 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
       setCvRecurring(data || [])
       localStorage.setItem('cv_recurring_local', JSON.stringify(data || []))
     } catch { /* keep local if Supabase unavailable */ }
+  }
+
+  async function loadAccountBalances() {
+    try {
+      const ids = ['mono_canelle','wise_canelle','wise_piers','wise_assets']
+      const { data } = await supabase.from('mt_balances').select('*').in('account_id', ids)
+      const bals = {}, updAts = {}
+      ;(data || []).forEach(b => { bals[b.account_id] = b.balance; updAts[b.account_id] = b.updated_at })
+      setAccountBalances(bals)
+      setAccountUpdatedAt(updAts)
+    } catch(e) { console.log('[mt_balances] read error:', e) }
   }
 
   // ── Recurring actions ──────────────────────────────────────────────
@@ -623,6 +642,19 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
   // Current URSSAF rate
   const currentUrssafRate = getUrssafRate(currentMonthStr, customRates)
 
+  // Calendar month derived data (what the income table + calendar display)
+  const calendarMonthEntries = allIncome.filter(r => r.date?.startsWith(calendarMonth))
+  const calendarMonthDrafts  = draftEntries.filter(d => d.date?.startsWith(calendarMonth))
+  const calendarMonthNet     = calendarMonthEntries.reduce((s,r) => s + (r.amount_after_urssaf||0), 0)
+  const calendarPrevMonth    = format(subMonths(new Date(calendarMonth+'-01'), 1), 'yyyy-MM')
+  const calendarPrevNet      = allIncome.filter(r => r.date?.startsWith(calendarPrevMonth)).reduce((s,r) => s + (r.amount_after_urssaf||0), 0)
+  const momNetPct            = calendarPrevNet > 0 ? Math.round((calendarMonthNet - calendarPrevNet) / calendarPrevNet * 100) : null
+  const calendarNextMonth    = format(addMonths(new Date(calendarMonth+'-01'), 1), 'yyyy-MM')
+  const maxCalendarMonth     = format(addMonths(new Date(), 2), 'yyyy-MM')
+
+  // Latest account updated_at (most recent across all accounts)
+  const latestAccountUpdate = Object.values(accountUpdatedAt).sort().reverse()[0]
+
   // Draft entries for current month
   const currentMonthDrafts = draftEntries.filter(d => d.date?.startsWith(currentMonthStr))
   const lateDrafts = draftEntries.filter(d => new Date(d.date) < new Date() && !lateDismissed[d.id])
@@ -877,7 +909,8 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
               </div>
             )}
 
-            {/* Goal circle */}
+            {/* Goal circle + Account overview side by side */}
+            <div style={{ display:'grid', gridTemplateColumns:'1fr auto', gap:16, alignItems:'stretch' }}>
             <div style={S.accentCard(P.orange)}>
               <div style={{ display:'flex', alignItems:'center', gap:32, flexWrap:'wrap' }}>
                 <GoalCircle confirmedNet={currentMonthGross * (1 - currentUrssafRate)} draftNet={currentMonthDraftNet} goal={monthlyGoal}/>
@@ -901,6 +934,34 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
                 </div>
               </div>
             </div>
+
+            {/* Account balances — read-only, synced from Piers' MoneyTime */}
+            <div style={{ ...S.card, minWidth:220, display:'flex', flexDirection:'column', gap:0 }}>
+              <div style={{ ...S.label, marginBottom:12 }}>Mes comptes</div>
+              {[
+                { id:'mono_canelle', label:'Monobanque', icon:'🏦', color:P.blue },
+                { id:'wise_canelle', label:'Wise moi',   icon:'💳', color:P.green },
+                { id:'wise_piers',   label:'Wise Piers', icon:'💰', color:P.orange },
+                { id:'wise_assets',  label:'Stocks',     icon:'📈', color:P.gold },
+              ].map(acc => {
+                const bal = accountBalances[acc.id]
+                return (
+                  <div key={acc.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 0', borderBottom:'1px solid rgba(0,0,0,0.04)' }}>
+                    <div style={{ width:8, height:8, borderRadius:'50%', background:acc.color, flexShrink:0 }}/>
+                    <div style={{ flex:1, fontSize:13, color:P.muted }}>{acc.icon} {acc.label}</div>
+                    <div style={{ fontSize:14, fontWeight:700, color:bal!=null&&bal!==0?P.text:P.subtle }}>
+                      {bal!=null&&bal!==0 ? `€${Math.round(bal).toLocaleString()}` : '—'}
+                    </div>
+                  </div>
+                )
+              })}
+              <div style={{ fontSize:10, color:P.subtle, marginTop:10 }}>
+                {latestAccountUpdate
+                  ? `màj ${latestAccountUpdate.slice(0,10)}`
+                  : 'Mis à jour par Piers dans Money Time'}
+              </div>
+            </div>
+            </div>{/* end 2-col grid */}
 
             {/* ── LATE PAYMENT BANNERS ── */}
             {lateDrafts.map(d=>{
@@ -957,10 +1018,36 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
               `}</style>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16, flexWrap:'wrap', gap:8 }}>
                 <div>
-                  <div style={{ ...S.label, marginBottom:2 }}>Revenus — {format(new Date(),'MMMM yyyy')}</div>
-                  <div style={{ fontSize:12, color:P.subtle }}>
-                    Taux URSSAF actuel : <strong style={{color:P.orange}}>{(currentUrssafRate*100).toFixed(1)}%</strong>
-                    &nbsp;·&nbsp; Prestation de service (auto-entrepreneur)
+                  {/* Month navigation — synced with calendar */}
+                  <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
+                    <button onClick={()=>setCalendarMonth(calendarPrevMonth)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:16, color:P.muted, padding:'2px 6px' }}>←</button>
+                    <div style={{ ...S.label, marginBottom:0 }}>{MONTH_FR[calendarMonth.slice(5)]} {calendarMonth.slice(0,4)}</div>
+                    <button onClick={()=>{ if(calendarNextMonth<=maxCalendarMonth) setCalendarMonth(calendarNextMonth) }} style={{ background:'none', border:'none', cursor:calendarNextMonth<=maxCalendarMonth?'pointer':'default', fontSize:16, color:calendarNextMonth<=maxCalendarMonth?P.muted:P.subtle, padding:'2px 6px' }}>→</button>
+                    {/* History dropdown */}
+                    <div style={{ position:'relative' }}>
+                      <button onClick={()=>setShowHistoryDropdown(v=>!v)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:11, color:P.muted }}>Historique ▾</button>
+                      {showHistoryDropdown && (
+                        <div style={{ position:'absolute', top:'100%', left:0, background:'#fff', borderRadius:8, boxShadow:'0 4px 20px rgba(0,0,0,0.12)', zIndex:100, minWidth:160, padding:'4px 0' }}>
+                          {ONBOARDING_MONTHS.slice().reverse().map(ym=>(
+                            <button key={ym} onClick={()=>{ setCalendarMonth(ym); setShowHistoryDropdown(false) }}
+                              style={{ display:'block', width:'100%', textAlign:'left', padding:'8px 16px', background:ym===calendarMonth?'rgba(244,147,6,0.08)':'transparent', border:'none', cursor:'pointer', fontSize:13, color:P.text, fontFamily:"'Space Grotesk',sans-serif" }}>
+                              {monthLabel(ym)}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                    <div style={{ fontSize:12, color:P.subtle }}>
+                      Taux URSSAF : <strong style={{color:P.orange}}>{(getUrssafRate(calendarMonth,customRates)*100).toFixed(1)}%</strong>
+                    </div>
+                    {/* Month-over-month comparison */}
+                    {momNetPct !== null && (
+                      <div style={{ fontSize:12, fontWeight:600, color:momNetPct>=0?P.green:P.red }}>
+                        {momNetPct>=0?'+':''}{momNetPct}% vs mois précédent
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div style={{ display:'flex', gap:8 }}>
@@ -984,7 +1071,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
               )}
 
               {/* Table */}
-              {(allIncome.filter(r=>r.date?.startsWith(currentMonthStr)).length + currentMonthDrafts.length) === 0 ? (
+              {(calendarMonthEntries.length + calendarMonthDrafts.length) === 0 ? (
                 <div style={{ textAlign:'center', padding:'32px 0', color:P.muted, fontSize:14 }}>
                   Aucun revenu ce mois — cliquez "+ Ajouter un client" pour commencer.
                 </div>
@@ -997,7 +1084,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
                   </tr></thead>
                   <tbody>
                     {/* Confirmed entries */}
-                    {allIncome.filter(r=>r.date?.startsWith(currentMonthStr)).map(r=>(
+                    {calendarMonthEntries.map(r=>(
                       <tr key={r.id} style={{ borderBottom:'1px solid rgba(0,0,0,0.04)' }}>
                         <td style={{ padding:'10px 10px', fontWeight:500, color:P.text }}>{r.client||'—'}</td>
                         <td style={{ padding:'10px 10px', color:P.text }}>€{Math.round(r.amount_gross)}</td>
@@ -1012,8 +1099,8 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
                       </tr>
                     ))}
                     {/* Draft entries */}
-                    {currentMonthDrafts.map(d=>{
-                      const dRate = getUrssafRate(d.date?.slice(0,7)||currentMonthStr, customRates)
+                    {calendarMonthDrafts.map(d=>{
+                      const dRate = getUrssafRate(d.date?.slice(0,7)||calendarMonth, customRates)
                       const dUrssaf = d.amount_gross * dRate
                       const dNet = d.amount_gross - dUrssaf
                       const isLate = new Date(d.date) < new Date()
@@ -1036,6 +1123,20 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
                 </table>
               )}
             </div>
+
+            {/* ── MONTHLY CALENDAR ── */}
+            <CalendarView
+              month={calendarMonth}
+              allIncome={allIncome}
+              draftEntries={draftEntries}
+              oneOffExpenses={oneOffExpenses}
+              cvRecurring={cvRecurring}
+              selectedDay={calendarDayDetail}
+              onDayClick={d => setCalendarDayDetail(prev => prev===d ? null : d)}
+              onPrev={() => setCalendarMonth(calendarPrevMonth)}
+              onNext={() => { if(calendarNextMonth<=maxCalendarMonth) setCalendarMonth(calendarNextMonth) }}
+              canGoNext={calendarNextMonth<=maxCalendarMonth}
+            />
 
             {/* YTD stats */}
             <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:16 }}>
@@ -1719,6 +1820,131 @@ function EditModal({ entry, piersPct, investPct, onSave, onClose }) {
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ── CalendarView ──────────────────────────────────────────────────────
+const DAY_HEADERS = ['L','M','M','J','V','S','D']
+
+function CalendarView({ month, allIncome, draftEntries, oneOffExpenses, cvRecurring, selectedDay, onDayClick, onPrev, onNext, canGoNext }) {
+  const [y, m] = month.split('-').map(Number)
+  const firstDayOfWeek = (new Date(y, m-1, 1).getDay() + 6) % 7 // Monday=0
+  const daysInMonth = new Date(y, m, 0).getDate()
+  const totalCells = Math.ceil((firstDayOfWeek + daysInMonth) / 7) * 7
+
+  return (
+    <div style={{ background:'#fff', borderRadius:12, padding:20 }}>
+      {/* Calendar header */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16 }}>
+        <button onClick={onPrev} style={{ background:'none', border:'none', cursor:'pointer', fontSize:20, color:P.muted, padding:'4px 8px' }}>←</button>
+        <div style={{ fontSize:15, fontWeight:700, color:P.text }}>
+          {MONTH_FR[month.slice(5)]} {month.slice(0,4)}
+        </div>
+        <button onClick={onNext} style={{ background:'none', border:'none', cursor:canGoNext?'pointer':'default', fontSize:20, color:canGoNext?P.muted:P.subtle, padding:'4px 8px' }}>→</button>
+      </div>
+
+      {/* Day headers */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:2, marginBottom:4 }}>
+        {DAY_HEADERS.map((d,i) => (
+          <div key={i} style={{ textAlign:'center', fontSize:10, fontWeight:600, color:P.subtle, letterSpacing:'0.08em', padding:'4px 0' }}>{d}</div>
+        ))}
+      </div>
+
+      {/* Day cells */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:2 }}>
+        {Array.from({ length: totalCells }, (_, idx) => {
+          const dayNum = idx - firstDayOfWeek + 1
+          const valid = dayNum >= 1 && dayNum <= daysInMonth
+          const dateStr = valid ? `${month}-${String(dayNum).padStart(2,'0')}` : null
+          const confirmed = valid ? allIncome.filter(r => r.date === dateStr) : []
+          const drafts    = valid ? draftEntries.filter(d => d.date === dateStr) : []
+          const oneoffs   = valid ? oneOffExpenses.filter(e => e.date === dateStr) : []
+          const recurring = valid ? cvRecurring.filter(r => r.active) : [] // show recurring indicator on day 1
+          const showRecurring = valid && dayNum === 1 && recurring.length > 0
+          const hasExpense = oneoffs.length > 0 || showRecurring
+          const isToday = dateStr === format(new Date(), 'yyyy-MM-dd')
+          const isSelected = dateStr === selectedDay
+
+          return (
+            <div key={idx}
+              onClick={() => valid && onDayClick(dateStr)}
+              style={{
+                minHeight:52, padding:'4px 3px', borderRadius:6, cursor:valid?'pointer':'default',
+                background: isSelected ? 'rgba(244,147,6,0.1)' : isToday ? 'rgba(165,187,26,0.08)' : 'transparent',
+                border: isToday ? `1.5px solid ${P.green}` : isSelected ? `1.5px solid ${P.orange}` : '1.5px solid transparent',
+                transition:'background 0.15s',
+              }}>
+              {valid && (
+                <>
+                  <div style={{ fontSize:12, fontWeight:isToday?700:400, color:isToday?P.green:P.text, textAlign:'center', marginBottom:3 }}>{dayNum}</div>
+                  {/* Dots */}
+                  <div style={{ display:'flex', flexWrap:'wrap', gap:2, justifyContent:'center' }}>
+                    {confirmed.map((_,i)=><div key={`c${i}`} style={{ width:6, height:6, borderRadius:'50%', background:P.green }}/>)}
+                    {drafts.map((_,i)=><div key={`d${i}`} style={{ width:6, height:6, borderRadius:'50%', background:'rgba(165,187,26,0.35)', border:`1px solid ${P.green}` }}/>)}
+                    {hasExpense && <div style={{ width:6, height:6, borderRadius:'50%', background:P.red }}/>}
+                  </div>
+                </>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Legend */}
+      <div style={{ display:'flex', gap:16, marginTop:12, flexWrap:'wrap' }}>
+        {[
+          { color:P.green, label:'Reçu' },
+          { color:'rgba(165,187,26,0.35)', border:`1px solid ${P.green}`, label:'Prévu' },
+          { color:P.red, label:'Dépense' },
+        ].map(({color,border,label})=>(
+          <div key={label} style={{ display:'flex', alignItems:'center', gap:5, fontSize:11, color:P.muted }}>
+            <div style={{ width:8, height:8, borderRadius:'50%', background:color, border:border||'none' }}/>
+            {label}
+          </div>
+        ))}
+      </div>
+
+      {/* Day detail panel */}
+      {selectedDay && (() => {
+        const conf = allIncome.filter(r => r.date === selectedDay)
+        const drft = draftEntries.filter(d => d.date === selectedDay)
+        const exps = oneOffExpenses.filter(e => e.date === selectedDay)
+        const dayNum = parseInt(selectedDay.slice(8))
+        const isFirst = dayNum === 1
+        const recs = isFirst ? cvRecurring.filter(r => r.active) : []
+        const hasAnything = conf.length||drft.length||exps.length||recs.length
+        return (
+          <div style={{ marginTop:12, padding:'12px 16px', background:'#F7F4F0', borderRadius:10, fontSize:13 }}>
+            <div style={{ fontWeight:700, color:P.text, marginBottom:8 }}>{selectedDay}</div>
+            {!hasAnything && <div style={{ color:P.subtle }}>Rien ce jour</div>}
+            {conf.map(r=>(
+              <div key={r.id} style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+                <span>✅ {r.client||'Revenu'}</span>
+                <span style={{ color:P.green, fontWeight:600 }}>+€{Math.round(r.amount_gross)}</span>
+              </div>
+            ))}
+            {drft.map(d=>(
+              <div key={d.id} style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+                <span>📋 {d.client} (prévu)</span>
+                <span style={{ color:P.muted }}>+€{d.amount_gross}</span>
+              </div>
+            ))}
+            {exps.map(e=>(
+              <div key={e.id} style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+                <span>💸 {e.name}</span>
+                <span style={{ color:P.red }}>−€{e.amount.toFixed(2)}</span>
+              </div>
+            ))}
+            {recs.map(r=>(
+              <div key={r.id} style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+                <span>🔄 {r.name} (mensuel)</span>
+                <span style={{ color:P.red }}>−€{r.amount.toFixed(2)}</span>
+              </div>
+            ))}
+          </div>
+        )
+      })()}
     </div>
   )
 }
