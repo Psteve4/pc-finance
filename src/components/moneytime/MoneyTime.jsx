@@ -615,6 +615,14 @@ export default function MoneyTime({ onBack, lang, setLang }) {
         {/* ── OVERVIEW TAB ── */}
         {tab === 'overview' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }} className="page-enter">
+            {/* Salary timing note */}
+            {piersSalary === 0 && new Date().getDate() <= 6 && (
+              <div style={{ background: 'rgba(106,180,255,0.08)', border: '1px solid rgba(106,180,255,0.25)', borderRadius: 8, padding: '12px 20px', fontSize: 13, color: 'var(--v-muted)' }}>
+                ⏳ {lang === 'en'
+                  ? "Piers' salary usually arrives by the 6th — proportional split will update automatically once entered."
+                  : "Le salaire de Piers arrive généralement avant le 6 — la répartition proportionnelle se mettra à jour automatiquement."}
+              </div>
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
               <div style={S.card}>
                 {/* Hidden file input */}

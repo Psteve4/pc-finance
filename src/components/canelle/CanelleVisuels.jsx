@@ -1,7 +1,49 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase.js'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line, Cell, ReferenceLine } from 'recharts'
 import { format, subMonths } from 'date-fns'
+
+// ── URSSAF rate history (taux par mois) ──────────────────────────────
+const URSSAF_RATE_HISTORY = {
+  '2025-08':0.11,'2025-09':0.106,'2025-10':0.106,'2025-11':0.106,
+  '2025-12':0.126,'2026-01':0.126,'2026-02':0.126,'2026-03':0.126,
+  '2026-04':0.2198,'2026-05':0.2198,'2026-06':0.2198,
+}
+function getUrssafRate(month, customRates={}) {
+  if (customRates[month]) return customRates[month]
+  if (URSSAF_RATE_HISTORY[month]) return URSSAF_RATE_HISTORY[month]
+  // Fall back to last known rate
+  const known = Object.keys(URSSAF_RATE_HISTORY).sort()
+  return URSSAF_RATE_HISTORY[known[known.length-1]] || 0.22
+}
+
+// ── Historical income data to seed on first load ──────────────────────
+const HISTORICAL_INCOME = [
+  { month:'2025-08', gross:791.84,  urssaf:87.10,  net:704.74,  client:'Historique Août' },
+  { month:'2025-09', gross:567.25,  urssaf:60.14,  net:507.11,  client:'Historique Septembre' },
+  { month:'2025-10', gross:2234.06, urssaf:236.81, net:1997.25, client:'Historique Octobre' },
+  { month:'2025-11', gross:932.00,  urssaf:98.79,  net:833.21,  client:'Historique Novembre' },
+  { month:'2025-12', gross:1605.99, urssaf:202.35, net:1403.64, client:'Historique Décembre' },
+  { month:'2026-01', gross:2059.69, urssaf:259.53, net:1800.16, client:'Historique Janvier' },
+  { month:'2026-02', gross:2448.00, urssaf:308.45, net:2139.55, client:'Historique Février' },
+  { month:'2026-03', gross:2850.00, urssaf:359.10, net:2490.90, client:'Historique Mars' },
+  { month:'2026-04', gross:2320.00, urssaf:509.95, net:1810.05, client:'Historique Avril' },
+]
+
+// ── Tutorial steps ────────────────────────────────────────────────────
+const TUTORIAL_STEPS = [
+  { title:'Dashboard', icon:'🏠', desc:"Ajoutez chaque paiement client dès réception. L'URSSAF et les répartitions sont calculées automatiquement." },
+  { title:'Objectif mensuel', icon:'🎯', desc:"Le cercle objectif montre votre cible mensuelle nette. Il se remplit en temps réel avec chaque revenu confirmé." },
+  { title:'Dépenses', icon:'💳', desc:"Suivez vos abonnements (Canva, Notion…) et frais ponctuels. Le total mensuel s'affiche en haut." },
+  { title:'Progrès & URSSAF', icon:'📊', desc:"Votre historique depuis mai 2025, graphiques de revenus nets, et suivi des paiements URSSAF par trimestre." },
+  { title:'Wishlist', icon:'⭐', desc:"Un % de chaque revenu net est automatiquement alloué à votre article prioritaire." },
+  { title:'Fin de mois', icon:'📅', desc:"La bannière de clôture apparaît les derniers jours du mois pour vous dire exactement quoi virer et où." },
+]
+
+const NET_GOAL = 2500 // default monthly net goal
+
+// ── Default splits ────────────────────────────────────────────────────
+const DEFAULT_SPLITS = { business:5, piers:15, retraite:10, courante:70 }
 
 // ── Palette ───────────────────────────────────────────────────────────
 const P = {
@@ -119,27 +161,37 @@ function CircleProgress({ pct, color = P.orange, size = 52 }) {
   )
 }
 
-// ── Large goal ring ───────────────────────────────────────────────────
-function GoalCircle({ current, goal }) {
-  const pct = goal > 0 ? Math.min(100, (current / goal) * 100) : 0
-  const reached = current >= goal
+// ── Large goal ring — supports confirmed + draft dual fill ─────────────
+function GoalCircle({ confirmedNet, draftNet = 0, goal }) {
   const R = 90, C = 2 * Math.PI * R
+  const totalNet = confirmedNet + draftNet
+  const confPct = goal > 0 ? Math.min(100, (confirmedNet / goal) * 100) : 0
+  const totalPct = goal > 0 ? Math.min(100, (totalNet / goal) * 100) : 0
+  const reached = confirmedNet >= goal
   const color = reached ? P.green : P.orange
   return (
-    <div style={{ position: 'relative', width: 220, height: 220, flexShrink: 0 }}>
-      <svg width="220" height="220" style={{ transform: 'rotate(-90deg)' }}>
-        <circle cx="110" cy="110" r={R} fill="none" stroke="rgba(0,0,0,0.08)" strokeWidth="18"/>
+    <div style={{ position:'relative', width:220, height:220, flexShrink:0 }}>
+      <svg width="220" height="220" style={{ transform:'rotate(-90deg)' }}>
+        {/* track */}
+        <circle cx="110" cy="110" r={R} fill="none" stroke="rgba(0,0,0,0.07)" strokeWidth="18"/>
+        {/* draft preview (lighter) */}
+        {draftNet > 0 && (
+          <circle cx="110" cy="110" r={R} fill="none" stroke="rgba(244,147,6,0.25)" strokeWidth="18"
+            strokeDasharray={C} strokeDashoffset={C - (totalPct/100)*C} strokeLinecap="round"/>
+        )}
+        {/* confirmed fill */}
         <circle cx="110" cy="110" r={R} fill="none" stroke={color} strokeWidth="18"
-          strokeDasharray={C} strokeDashoffset={C - (pct/100)*C} strokeLinecap="round"
-          style={{ transition: 'stroke-dashoffset 0.7s ease' }}/>
+          strokeDasharray={C} strokeDashoffset={C - (confPct/100)*C} strokeLinecap="round"
+          style={{ transition:'stroke-dashoffset 0.7s ease' }}/>
       </svg>
       <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', textAlign:'center' }}>
         {reached
           ? <div style={{ fontSize:13, color:P.green, fontWeight:700, lineHeight:1.4 }}>🎉<br/>Objectif<br/>atteint!</div>
           : <>
-              <div style={{ fontSize:30, fontWeight:700, color, lineHeight:1 }}>{Math.round(pct)}%</div>
-              <div style={{ fontSize:14, color:P.text, marginTop:4, fontWeight:600 }}>€{Math.round(current).toLocaleString()}</div>
-              <div style={{ fontSize:11, color:P.muted, marginTop:2 }}>/ €{goal.toLocaleString()}</div>
+              <div style={{ fontSize:30, fontWeight:700, color, lineHeight:1 }}>{Math.round(confPct)}%</div>
+              <div style={{ fontSize:14, color:P.text, marginTop:4, fontWeight:600 }}>€{Math.round(confirmedNet).toLocaleString()}</div>
+              <div style={{ fontSize:11, color:P.muted, marginTop:2 }}>/ €{goal.toLocaleString()} net</div>
+              {draftNet > 0 && <div style={{ fontSize:10, color:'rgba(244,147,6,0.7)', marginTop:2 }}>dont €{Math.round(draftNet).toLocaleString()} prévu</div>}
             </>
         }
       </div>
@@ -204,6 +256,41 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
   })
   const [urssafLog, setUrssafLog] = useState(() => {
     try { return JSON.parse(localStorage.getItem('cv_urssaf_log') || '[]') } catch { return [] }
+  })
+
+  // Draft income entries (planned payments, stored locally)
+  const [draftEntries, setDraftEntries] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('cv_income_drafts') || '[]') } catch { return [] }
+  })
+  const [showDraftForm, setShowDraftForm] = useState(false)
+  const [draftForm, setDraftForm] = useState({ client:'', amount:'', date:format(new Date(),'yyyy-MM-dd'), note:'' })
+
+  // URSSAF custom rates (overlay on URSSAF_RATE_HISTORY)
+  const [customRates, setCustomRates] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('cv_urssaf_custom_rates') || '{}') } catch { return {} }
+  })
+
+  // Custom income splits
+  const [splits, setSplits] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('cv_splits') || JSON.stringify(DEFAULT_SPLITS)) } catch { return DEFAULT_SPLITS }
+  })
+
+  // Historical seeding
+  const [seeded, setSeeded] = useState(() => localStorage.getItem('cv_history_seeded') === '1')
+
+  // Tutorial
+  const [tutorialOpen, setTutorialOpen] = useState(() => localStorage.getItem('tutorial_seen_cv') !== '1')
+  const [tutorialStep, setTutorialStep] = useState(0)
+
+  // End of month dismissed
+  const [eomDismissed, setEomDismissed] = useState(() => {
+    const key = `cv_eom_dismissed_${format(new Date(),'yyyy-MM')}`
+    return localStorage.getItem(key) === '1'
+  })
+
+  // Late payment banners dismissed per draft id
+  const [lateDismissed, setLateDismissed] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('cv_late_dismissed') || '{}') } catch { return {} }
   })
 
   // Edit / manage modals
@@ -304,6 +391,86 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
     const updated = oneOffExpenses.filter(e => e.id !== id)
     setOneOffExpenses(updated)
     localStorage.setItem('cv_oneoff', JSON.stringify(updated))
+  }
+
+  // ── Historical data seeding ───────────────────────────────────────
+  useEffect(() => {
+    if (seeded || loading) return
+    seedHistoricalData()
+  }, [loading, seeded])
+
+  async function seedHistoricalData() {
+    for (const h of HISTORICAL_INCOME) {
+      const exists = allIncome.some(r => r.date?.startsWith(h.month))
+      if (exists) continue
+      const rate = getUrssafRate(h.month, customRates)
+      const isPost = h.month >= '2026-04'
+      const toPiers = h.net * 0.15
+      const company = h.net * 0.05
+      const retraite = isPost ? h.net * 0.10 : 0
+      const salary = h.net - toPiers - company - retraite
+      await supabase.from('cv_income').insert({
+        client: h.client, amount_gross: h.gross, amount_urssaf: h.urssaf,
+        amount_after_urssaf: h.net, amount_to_piers_wise: toPiers,
+        amount_company: company, amount_salary: salary,
+        date: `${h.month}-01`, category: 'bnc_services', description: 'Historique'
+      })
+    }
+    localStorage.setItem('cv_history_seeded', '1')
+    setSeeded(true)
+    loadAllIncome()
+  }
+
+  // ── Draft entry actions ───────────────────────────────────────────
+  function addDraftEntry() {
+    if (!draftForm.amount) return
+    const entry = {
+      id: `draft_${Date.now()}`, client: draftForm.client || 'Client',
+      amount_gross: parseFloat(draftForm.amount), date: draftForm.date, note: draftForm.note,
+      created: new Date().toISOString()
+    }
+    const updated = [entry, ...draftEntries]
+    setDraftEntries(updated)
+    localStorage.setItem('cv_income_drafts', JSON.stringify(updated))
+    setDraftForm({ client:'', amount:'', date:format(new Date(),'yyyy-MM-dd'), note:'' })
+    setShowDraftForm(false)
+  }
+
+  function deleteDraftEntry(id) {
+    const updated = draftEntries.filter(d => d.id !== id)
+    setDraftEntries(updated)
+    localStorage.setItem('cv_income_drafts', JSON.stringify(updated))
+  }
+
+  async function confirmDraftEntry(draft) {
+    const month = draft.date?.slice(0,7) || currentMonthStr
+    const rate = getUrssafRate(month, customRates)
+    const gross = draft.amount_gross
+    const urssaf = gross * rate, net = gross - urssaf
+    const toPiers = net * (splits.piers / 100)
+    const company = net * (splits.business / 100)
+    const retraite = net * (splits.retraite / 100)
+    const salary = net - toPiers - company - retraite
+    const { error } = await supabase.from('cv_income').insert({
+      client: draft.client, amount_gross: gross, amount_urssaf: urssaf,
+      amount_after_urssaf: net, amount_to_piers_wise: toPiers,
+      amount_company: company, amount_salary: salary,
+      date: draft.date, category: 'bnc_services', description: draft.note || ''
+    })
+    if (error) { console.error('confirm draft error:', error); return }
+    deleteDraftEntry(draft.id)
+    loadAllIncome()
+  }
+
+  function saveSplits(newSplits) {
+    setSplits(newSplits)
+    localStorage.setItem('cv_splits', JSON.stringify(newSplits))
+  }
+
+  function dismissLateBanner(id) {
+    const updated = { ...lateDismissed, [id]: true }
+    setLateDismissed(updated)
+    localStorage.setItem('cv_late_dismissed', JSON.stringify(updated))
   }
 
   // ── Income edit / delete ───────────────────────────────────────────
@@ -452,6 +619,20 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
   const currentMonthStr = format(new Date(),'yyyy-MM')
   const currentMonthGross = income.filter(r=>r.date?.startsWith(currentMonthStr))
     .reduce((s,r)=>s+(r.amount_gross||0),0)
+
+  // Current URSSAF rate
+  const currentUrssafRate = getUrssafRate(currentMonthStr, customRates)
+
+  // Draft entries for current month
+  const currentMonthDrafts = draftEntries.filter(d => d.date?.startsWith(currentMonthStr))
+  const lateDrafts = draftEntries.filter(d => new Date(d.date) < new Date() && !lateDismissed[d.id])
+  const currentMonthDraftNet = currentMonthDrafts.reduce((s,d) => {
+    const n = d.amount_gross * (1 - currentUrssafRate); return s + n
+  }, 0)
+
+  // End of month detection (days 28-31 and days 1-6 of next month)
+  const todayDay = new Date().getDate()
+  const isEndOfMonth = todayDay >= 28 || todayDay <= 6
 
   // URSSAF monthly reminder — previous month's amounts and paid status
   const prevMonth = format(subMonths(new Date(), 1), 'yyyy-MM')
@@ -699,7 +880,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
             {/* Goal circle */}
             <div style={S.accentCard(P.orange)}>
               <div style={{ display:'flex', alignItems:'center', gap:32, flexWrap:'wrap' }}>
-                <GoalCircle current={currentMonthGross} goal={monthlyGoal}/>
+                <GoalCircle confirmedNet={currentMonthGross * (1 - currentUrssafRate)} draftNet={currentMonthDraftNet} goal={monthlyGoal}/>
                 <div style={{ flex:1, minWidth:200 }}>
                   <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
                     <div style={{ fontSize:13, fontWeight:700, color:P.text }}>{lang==='en'?'Monthly Income Goal':'Objectif mensuel'}</div>
@@ -721,109 +902,138 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
               </div>
             </div>
 
-            {/* Quick access — manage all entries */}
-            <div style={{ display:'flex', justifyContent:'flex-end' }}>
-              <button onClick={()=>setShowAllEntries(true)} style={{ ...S.btnGhost(), fontSize:13 }}>
-                📋 {lang==='en'?'Manage all entries':'Gérer toutes les entrées'}
-              </button>
-            </div>
+            {/* ── LATE PAYMENT BANNERS ── */}
+            {lateDrafts.map(d=>{
+              const daysLate = Math.floor((Date.now()-new Date(d.date))/(86400000))
+              return (
+                <div key={d.id} style={{ background:'rgba(230,58,38,0.08)', border:'1px solid rgba(230,58,38,0.3)', borderRadius:10, padding:'14px 20px' }}>
+                  <div style={{ fontSize:14, fontWeight:600, color:P.red, marginBottom:10 }}>
+                    ⚠️ Paiement en retard — {d.client} devait payer le {d.date} (il y a {daysLate} jour{daysLate>1?'s':''})
+                  </div>
+                  <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                    <button style={{ ...S.btn, background:P.green, padding:'8px 16px', fontSize:13 }} onClick={()=>confirmDraftEntry(d)}>✅ Reçu maintenant</button>
+                    <button style={{ ...S.btn, background:'transparent', border:`1px solid ${P.orange}`, color:P.orange, padding:'8px 16px', fontSize:13 }}
+                      onClick={()=>{const u=[...draftEntries];const i=u.findIndex(x=>x.id===d.id);if(i>=0){u[i]={...u[i],date:format(new Date(new Date().getTime()+7*86400000),'yyyy-MM-dd')};setDraftEntries(u);localStorage.setItem('cv_income_drafts',JSON.stringify(u))}}}>
+                      ⏰ Reporter 7j
+                    </button>
+                    <button style={{ ...S.btnGhost(), fontSize:13 }} onClick={()=>dismissLateBanner(d.id)}>Ignorer</button>
+                  </div>
+                </div>
+              )
+            })}
 
-            {/* Add income */}
-            <div ref={addIncomeRef} style={S.accentCard(P.orange)}>
+            {/* ── END OF MONTH BANNER ── */}
+            {isEndOfMonth && !eomDismissed && (
+              <div style={{ background:'rgba(109,184,190,0.12)', border:'1px solid rgba(109,184,190,0.4)', borderRadius:12, padding:'20px 24px' }}>
+                <div style={{ fontSize:16, fontWeight:700, color:P.blue, marginBottom:10 }}>📅 Clôture du mois</div>
+                <div style={{ fontSize:14, color:P.text, marginBottom:12 }}>
+                  Revenus confirmés ce mois : <strong>€{Math.round(currentMonthGross).toLocaleString()}</strong> brut &nbsp;·&nbsp;
+                  URSSAF : <strong style={{color:P.red}}>€{Math.round(currentMonthGross*currentUrssafRate).toLocaleString()}</strong> &nbsp;·&nbsp;
+                  Net : <strong style={{color:P.green}}>€{Math.round(currentMonthGross*(1-currentUrssafRate)).toLocaleString()}</strong>
+                </div>
+                <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:12 }}>
+                  {[
+                    { label:`→ Wise Piers (${splits.piers}%)`, amt: currentMonthGross*(1-currentUrssafRate)*splits.piers/100 },
+                    { label:`→ Épargne business (${splits.business}%)`, amt: currentMonthGross*(1-currentUrssafRate)*splits.business/100 },
+                    { label:`→ Retraite (${splits.retraite}%)`, amt: currentMonthGross*(1-currentUrssafRate)*splits.retraite/100 },
+                    { label:`→ URSSAF (${Math.round(currentUrssafRate*100)}%)`, amt: currentMonthGross*currentUrssafRate },
+                  ].map(({label,amt})=>(
+                    <div key={label} style={{ fontSize:13, color:P.text }}>
+                      {label}: <strong style={{color:P.orange}}>€{Math.round(amt).toLocaleString()}</strong>
+                    </div>
+                  ))}
+                </div>
+                <button onClick={()=>{localStorage.setItem(`cv_eom_dismissed_${currentMonthStr}`,'1');setEomDismissed(true)}}
+                  style={{ ...S.btn, background:P.blue, padding:'10px 22px', fontSize:13 }}>✅ Mois clôturé</button>
+              </div>
+            )}
+
+            {/* ── INCOME TABLE — current month ── */}
+            <div ref={addIncomeRef} style={S.card}>
               <style>{`
-                .cv-income-grid { display:grid; grid-template-columns:2fr 1.5fr 1fr 1.5fr auto; gap:16px; align-items:end; }
-                @media(max-width:600px){ .cv-income-grid { grid-template-columns:1fr !important; } }
-                .cv-field-label { font-size:11px; letter-spacing:0.13em; text-transform:uppercase; color:${P.muted}; margin-bottom:6px; font-weight:600; display:block; white-space:nowrap; }
-                .cv-field-hint  { font-size:11px; color:${P.subtle}; margin-bottom:6px; }
-                .cv-field-input { display:block; width:100%; height:44px; padding:0 0 0 2px; background:transparent; border:none; border-bottom:2px solid #e8e0d8; font-size:14px; color:${P.text}; font-family:'Space Grotesk',sans-serif; box-sizing:border-box; }
+                .cv-field-label { font-size:11px; letter-spacing:0.13em; text-transform:uppercase; color:${P.muted}; margin-bottom:6px; font-weight:600; display:block; }
+                .cv-field-input { display:block; width:100%; height:42px; padding:0 2px; background:transparent; border:none; border-bottom:2px solid #e8e0d8; font-size:14px; color:${P.text}; font-family:'Space Grotesk',sans-serif; box-sizing:border-box; }
                 .cv-field-input:focus { border-bottom-color:${P.orange}; outline:none; }
               `}</style>
-
-              <div style={{ marginBottom:20 }}>
-                <div style={{ ...S.label, color:P.orange, marginBottom:4 }}>+ {t.add_income}</div>
-                <div style={{ fontSize:13, color:P.muted }}>
-                  {lang==='en'
-                    ? 'Add each payment received from your clients — URSSAF and splits calculated automatically.'
-                    : 'Ajoutez chaque paiement reçu de vos clients ici — l\'URSSAF et les répartitions sont calculés automatiquement.'}
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16, flexWrap:'wrap', gap:8 }}>
+                <div>
+                  <div style={{ ...S.label, marginBottom:2 }}>Revenus — {format(new Date(),'MMMM yyyy')}</div>
+                  <div style={{ fontSize:12, color:P.subtle }}>
+                    Taux URSSAF actuel : <strong style={{color:P.orange}}>{(currentUrssafRate*100).toFixed(1)}%</strong>
+                    &nbsp;·&nbsp; Prestation de service (auto-entrepreneur)
+                  </div>
+                </div>
+                <div style={{ display:'flex', gap:8 }}>
+                  <button onClick={()=>setShowDraftForm(v=>!v)} style={{ ...S.btn, padding:'9px 20px', fontSize:13 }}>+ Ajouter un client</button>
+                  <button onClick={()=>setShowAllEntries(true)} style={{ ...S.btnGhost(), fontSize:12 }}>📋 Tout voir</button>
                 </div>
               </div>
 
-              <div className="cv-income-grid">
-                {/* Client */}
-                <div>
-                  <span className="cv-field-label">{t.client}</span>
-                  <input className="cv-field-input" value={form.client}
-                    onChange={e=>setForm(p=>({...p,client:e.target.value}))}
-                    placeholder={lang==='en'?'Client or company name':'Nom du client ou entreprise'}/>
-                </div>
-
-                {/* Amount */}
-                <div>
-                  <span className="cv-field-label">{lang==='en'?'Amount (€ gross)':'Montant (€ brut)'}</span>
-                  <span className="cv-field-hint">{lang==='en'?'before URSSAF':'avant URSSAF'}</span>
-                  <input className="cv-field-input" type="number" value={form.amount}
-                    onChange={e=>setForm(p=>({...p,amount:e.target.value}))}
-                    placeholder="0.00"/>
-                </div>
-
-                {/* Date */}
-                <div>
-                  <span className="cv-field-label">{t.date}</span>
-                  <input className="cv-field-input" type="date" value={form.date}
-                    onChange={e=>setForm(p=>({...p,date:e.target.value}))}/>
-                </div>
-
-                {/* URSSAF category */}
-                <div>
-                  <span className="cv-field-label">{lang==='en'?'Category':'Catégorie'}</span>
-                  <select className="cv-field-input" value={form.cat}
-                    onChange={e=>setForm(p=>({...p,cat:e.target.value}))}>
-                    {URSSAF_CATEGORIES.map(c=><option key={c.id} value={c.id}>{c.label} ({(c.rate*100).toFixed(1)}%)</option>)}
-                  </select>
-                </div>
-
-                {/* Submit button — align-items:end puts it flush with the inputs */}
-                <button style={{ ...S.btn, whiteSpace:'nowrap', height:44, padding:'0 28px', fontSize:14 }} onClick={addIncome}>
-                  {lang==='en'?'✓ Record':'✓ Enregistrer'}
-                </button>
-              </div>
-
-              {/* Optional note — full width below the main grid */}
-              <div style={{ marginTop:12 }}>
-                <input className="cv-field-input" value={form.desc}
-                  onChange={e=>setForm(p=>({...p,desc:e.target.value}))}
-                  placeholder={lang==='en'?'Optional note (invoice #, project…)':'Note optionnelle (n° facture, projet…)'}
-                  style={{ width:'100%' }}/>
-              </div>
-
-              {previewGross>0 && (
-                <div style={{ background:'#F7F4F0', borderRadius:8, padding:'14px 18px', marginTop:16 }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
-                    <div style={{ fontSize:12, color:P.muted }}>🏦 Monobanque reçoit</div>
-                    <div style={{ fontSize:18, fontWeight:700, color:P.text }}>€{Math.round(previewGross).toLocaleString()}</div>
+              {/* Add draft form */}
+              {showDraftForm && (
+                <div style={{ background:'#F7F4F0', borderRadius:10, padding:16, marginBottom:16, display:'grid', gridTemplateColumns:'2fr 1fr 1fr 1fr auto', gap:12, alignItems:'end' }}>
+                  <div><span className="cv-field-label">Client</span><input className="cv-field-input" value={draftForm.client} onChange={e=>setDraftForm(p=>({...p,client:e.target.value}))} placeholder="Nom du client"/></div>
+                  <div><span className="cv-field-label">Montant (€ brut)</span><input className="cv-field-input" type="number" value={draftForm.amount} onChange={e=>setDraftForm(p=>({...p,amount:e.target.value}))} placeholder="0.00"/></div>
+                  <div><span className="cv-field-label">Date prévue</span><input className="cv-field-input" type="date" value={draftForm.date} onChange={e=>setDraftForm(p=>({...p,date:e.target.value}))}/></div>
+                  <div><span className="cv-field-label">Note</span><input className="cv-field-input" value={draftForm.note} onChange={e=>setDraftForm(p=>({...p,note:e.target.value}))} placeholder="N° facture…"/></div>
+                  <div style={{ display:'flex', gap:6 }}>
+                    <button style={{ ...S.btn, padding:'9px 16px', fontSize:13 }} onClick={addDraftEntry}>Ajouter</button>
+                    <button style={{ ...S.btnGhost(), fontSize:13 }} onClick={()=>setShowDraftForm(false)}>✕</button>
                   </div>
-                  <div style={{ paddingLeft:14, marginBottom:8 }}>
-                    <div style={{ fontSize:11, color:P.muted }}>↓ URSSAF ({Math.round(formRate*100)}%)</div>
-                    <div style={{ fontSize:13, fontWeight:600, color:P.red }}>−€{Math.round(previewUrssaf).toLocaleString()}</div>
-                  </div>
-                  <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 12px', background:'rgba(165,187,26,0.1)', border:`1px solid rgba(165,187,26,0.35)`, borderRadius:6, marginBottom:8 }}>
-                    <div style={{ fontSize:12, fontWeight:700, color:P.green }}>Net personnel</div>
-                    <div style={{ fontSize:20, fontWeight:700, color:P.green }}>€{Math.round(previewNet).toLocaleString()}</div>
-                  </div>
-                  <div style={{ paddingLeft:14 }}>
-                    {[
-                      { label:'Wise Canelle (salaire)', val:previewSalary, color:P.green },
-                      { label:'Wise Piers — loyer & épargne', val:previewToPiers, color:P.blue },
-                      { label:'Réinvesti entreprise', val:previewCompany, color:P.orange },
-                    ].map(({label,val,color})=>(
-                      <div key={label} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
-                        <div style={{ color, fontSize:14 }}>→</div>
-                        <div style={{ flex:1, fontSize:12, color:P.muted }}>{label}</div>
-                        <div style={{ fontSize:14, fontWeight:700, color }}>€{Math.round(val).toLocaleString()}</div>
-                      </div>
+                </div>
+              )}
+
+              {/* Table */}
+              {(allIncome.filter(r=>r.date?.startsWith(currentMonthStr)).length + currentMonthDrafts.length) === 0 ? (
+                <div style={{ textAlign:'center', padding:'32px 0', color:P.muted, fontSize:14 }}>
+                  Aucun revenu ce mois — cliquez "+ Ajouter un client" pour commencer.
+                </div>
+              ) : (
+                <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+                  <thead><tr>
+                    {['Client','Montant brut','Date','Statut','URSSAF','Net',''].map(h=>(
+                      <th key={h} style={{ padding:'8px 10px', textAlign:'left', borderBottom:'2px solid #e8e0d8', fontSize:10, letterSpacing:'0.1em', textTransform:'uppercase', color:P.muted }}>{h}</th>
                     ))}
-                  </div>
-                </div>
+                  </tr></thead>
+                  <tbody>
+                    {/* Confirmed entries */}
+                    {allIncome.filter(r=>r.date?.startsWith(currentMonthStr)).map(r=>(
+                      <tr key={r.id} style={{ borderBottom:'1px solid rgba(0,0,0,0.04)' }}>
+                        <td style={{ padding:'10px 10px', fontWeight:500, color:P.text }}>{r.client||'—'}</td>
+                        <td style={{ padding:'10px 10px', color:P.text }}>€{Math.round(r.amount_gross)}</td>
+                        <td style={{ padding:'10px 10px', color:P.muted }}>{r.date}</td>
+                        <td style={{ padding:'10px 10px' }}><span style={{ fontSize:11, padding:'3px 8px', borderRadius:100, background:'rgba(165,187,26,0.12)', color:P.green, fontWeight:600 }}>✅ Confirmé</span></td>
+                        <td style={{ padding:'10px 10px', color:P.red }}>−€{Math.round(r.amount_urssaf)}</td>
+                        <td style={{ padding:'10px 10px', color:P.green, fontWeight:600 }}>€{Math.round(r.amount_after_urssaf)}</td>
+                        <td style={{ padding:'10px 6px', whiteSpace:'nowrap' }}>
+                          <button onClick={()=>setEditEntry(r)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:14, opacity:0.7 }}>✏️</button>
+                          <button onClick={()=>deleteEntry(r.id)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:14, opacity:0.7 }}>🗑️</button>
+                        </td>
+                      </tr>
+                    ))}
+                    {/* Draft entries */}
+                    {currentMonthDrafts.map(d=>{
+                      const dRate = getUrssafRate(d.date?.slice(0,7)||currentMonthStr, customRates)
+                      const dUrssaf = d.amount_gross * dRate
+                      const dNet = d.amount_gross - dUrssaf
+                      const isLate = new Date(d.date) < new Date()
+                      return (
+                        <tr key={d.id} style={{ borderBottom:'1px solid rgba(0,0,0,0.04)', background:isLate?'rgba(230,58,38,0.03)':'rgba(244,147,6,0.03)' }}>
+                          <td style={{ padding:'10px 10px', color:P.text }}>{isLate?'⚠️ ':''}{d.client}</td>
+                          <td style={{ padding:'10px 10px', color:P.muted }}>€{d.amount_gross}</td>
+                          <td style={{ padding:'10px 10px', color:isLate?P.red:P.muted }}>{d.date}</td>
+                          <td style={{ padding:'10px 10px' }}><span style={{ fontSize:11, padding:'3px 8px', borderRadius:100, background:'rgba(244,147,6,0.12)', color:P.orange, fontWeight:600 }}>📋 Prévu</span></td>
+                          <td style={{ padding:'10px 10px', color:P.red, opacity:0.6 }}>−€{Math.round(dUrssaf)}</td>
+                          <td style={{ padding:'10px 10px', color:P.muted }}>€{Math.round(dNet)}</td>
+                          <td style={{ padding:'10px 6px', whiteSpace:'nowrap' }}>
+                            <button onClick={()=>confirmDraftEntry(d)} style={{ ...S.btn, padding:'4px 10px', fontSize:12, background:P.green }} title="Confirmer réception">✓</button>
+                            <button onClick={()=>deleteDraftEntry(d.id)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:14, opacity:0.7, marginLeft:4 }}>🗑️</button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
               )}
             </div>
 
@@ -880,40 +1090,39 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
               )}
             </div>
 
-            {ytdGross>0 && (
-              <div style={S.accentCard(P.orange)}>
-                <div style={{ ...S.label, color:P.orange, marginBottom:12 }}>📊 {lang==='en'?'URSSAF Forecast':'Prévision URSSAF'}</div>
-                <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12 }}>
-                  {[
-                    { label:'Moy. mensuelle', val:avgMonthlyGross, color:P.text },
-                    { label:'CA annuel projeté', val:projected, color:P.text },
-                    { label:'URSSAF estimée', val:estUrssaf, color:P.red },
-                    { label:'Encore à mettre', val:stillToSet, color:stillToSet>0?P.red:P.green },
-                  ].map(({label,val,color})=>(
-                    <div key={label}>
-                      <div style={{ fontSize:10, color:P.muted, textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:4 }}>{label}</div>
-                      <div style={{ fontSize:20, fontWeight:700, color }}>€{Math.round(val).toLocaleString()}</div>
-                    </div>
-                  ))}
-                </div>
-                {forecastPct>70 && (
-                  <div style={{ marginTop:12, fontSize:12, padding:'8px 12px', borderRadius:6, color:forecastPct>=100?P.red:'#b36600', background:forecastPct>=100?'rgba(230,58,38,0.08)':'rgba(244,147,6,0.08)', border:`1px solid ${forecastPct>=100?'rgba(230,58,38,0.3)':'rgba(244,147,6,0.3)'}` }}>
-                    {forecastPct>=100?`⚠️ CA projeté (€${Math.round(projected).toLocaleString()}) dépasse le seuil — consultez un comptable.`:`📈 À ce rythme vous atteindrez ${forecastPct}% du seuil de 77 700€.`}
+            {/* Aperçu URSSAF — current month focus */}
+            <div style={S.accentCard(P.red)}>
+              <div style={{ ...S.label, color:P.red, marginBottom:12 }}>📊 Aperçu URSSAF — {format(new Date(),'MMMM yyyy')}</div>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:16 }}>
+                {[
+                  { label:'Revenus bruts ce mois', val:currentMonthGross, color:P.text },
+                  { label:`URSSAF (${(currentUrssafRate*100).toFixed(1)}%)`, val:currentMonthGross*currentUrssafRate, color:P.red },
+                  { label:'Virements à effectuer', val:currentMonthGross*(splits.piers/100)+currentMonthGross*(splits.business/100)+currentMonthGross*(splits.retraite/100), color:P.orange },
+                ].map(({label,val,color})=>(
+                  <div key={label}>
+                    <div style={{ fontSize:10, color:P.muted, textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:4 }}>{label}</div>
+                    <div style={{ fontSize:22, fontWeight:700, color }}>€{Math.round(val).toLocaleString()}</div>
                   </div>
-                )}
+                ))}
               </div>
-            )}
+              <div style={{ fontSize:12, color:P.muted, marginTop:10 }}>
+                Total URSSAF payée cette année : €{Math.round(totalUrssafPaid).toLocaleString()}
+                {forecastPct>70&&<span style={{marginLeft:12,color:P.red}}>⚠️ {forecastPct}% du seuil €77 700 atteint</span>}
+              </div>
+            </div>
 
             <div style={S.card}>
-              <div style={{ ...S.label, marginBottom:20 }}>{t.chart_title} — {selectedYear}</div>
+              <div style={{ ...S.label, marginBottom:20 }}>Revenus nets — {selectedYear} <span style={{fontSize:10,color:P.subtle,marginLeft:8,fontWeight:400}}>objectif €{NET_GOAL.toLocaleString()} net</span></div>
               <ResponsiveContainer width="100%" height={180}>
                 <BarChart data={monthlyData} barGap={4}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false}/>
                   <XAxis dataKey="month" tick={{ fill:P.muted, fontSize:11 }} axisLine={false} tickLine={false}/>
                   <YAxis tick={{ fill:P.muted, fontSize:10 }} axisLine={false} tickLine={false}/>
                   <Tooltip contentStyle={tipStyle} labelStyle={{ color:P.text }}/>
-                  <Bar dataKey="gross" fill={P.orange} radius={[3,3,0,0]} name={t.gross}/>
-                  <Bar dataKey="net" fill={P.green} radius={[3,3,0,0]} name={t.net}/>
+                  <ReferenceLine y={NET_GOAL} stroke={P.green} strokeDasharray="6 3" label={{ value:`Objectif €${NET_GOAL.toLocaleString()}`, position:'insideTopRight', fill:P.green, fontSize:10 }}/>
+                  <Bar dataKey="net" radius={[3,3,0,0]} name="Net">
+                    {monthlyData.map((d,i)=><Cell key={i} fill={d.net>=NET_GOAL?P.green:P.orange}/>)}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -944,19 +1153,24 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
             </div>
 
             <div style={S.card}>
-              <div style={{ ...S.label, marginBottom:16 }}>Revenus mensuels — Mai 2025 à aujourd'hui</div>
+              <div style={{ ...S.label, marginBottom:16 }}>
+                Revenus nets — Mai 2025 à aujourd'hui
+                <span style={{ fontSize:10, color:P.subtle, marginLeft:8, fontWeight:400 }}>objectif €{NET_GOAL.toLocaleString()}/mois</span>
+              </div>
               <ResponsiveContainer width="100%" height={200}>
                 <BarChart data={progressData} barGap={2}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false}/>
                   <XAxis dataKey="month" tick={{ fill:P.muted, fontSize:10 }} axisLine={false} tickLine={false}/>
                   <YAxis tick={{ fill:P.muted, fontSize:10 }} axisLine={false} tickLine={false}/>
                   <Tooltip contentStyle={tipStyle} labelStyle={{ color:P.text }}/>
-                  <Bar dataKey="gross" fill={P.orange} radius={[3,3,0,0]} name="Brut"/>
-                  <Bar dataKey="net" fill={P.green} radius={[3,3,0,0]} name="Net"/>
+                  <ReferenceLine y={NET_GOAL} stroke={P.green} strokeDasharray="6 3" label={{ value:`Objectif €${NET_GOAL.toLocaleString()}`, position:'insideTopRight', fill:P.green, fontSize:10 }}/>
+                  <Bar dataKey="net" radius={[3,3,0,0]} name="Net">
+                    {progressData.map((d,i)=><Cell key={i} fill={d.net>=NET_GOAL?P.green:P.orange}/>)}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
-              <div style={{ display:'flex', gap:20, marginTop:8 }}>
-                {[[P.orange,'Brut'],[P.green,'Net']].map(([c,l])=>(
+              <div style={{ display:'flex', gap:16, marginTop:8 }}>
+                {[[P.orange,`Net < €${NET_GOAL.toLocaleString()}`],[P.green,`Net ≥ €${NET_GOAL.toLocaleString()} (objectif)`]].map(([c,l])=>(
                   <div key={l} style={{ display:'flex', alignItems:'center', gap:6, fontSize:11, color:P.muted }}>
                     <div style={{ width:12, height:8, borderRadius:2, background:c }}/>{l}
                   </div>
@@ -1349,6 +1563,24 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
           onClose={()=>setShowAllEntries(false)}
         />
       )}
+
+      {/* ── TUTORIAL ── */}
+      {tutorialOpen && (
+        <TutorialOverlay
+          steps={TUTORIAL_STEPS}
+          step={tutorialStep}
+          onNext={()=>{ if(tutorialStep<TUTORIAL_STEPS.length-1) setTutorialStep(s=>s+1); else { setTutorialOpen(false); localStorage.setItem('tutorial_seen_cv','1') } }}
+          onBack={()=>setTutorialStep(s=>Math.max(0,s-1))}
+          onClose={()=>{ setTutorialOpen(false); localStorage.setItem('tutorial_seen_cv','1') }}
+        />
+      )}
+
+      {/* ── ? TUTORIAL BUTTON ── fixed bottom-left ── */}
+      <button
+        onClick={()=>{ setTutorialStep(0); setTutorialOpen(true) }}
+        style={{ position:'fixed', bottom:24, left:24, zIndex:500, width:44, height:44, borderRadius:'50%', background:P.orange, border:'none', color:'#fff', fontSize:20, fontWeight:700, cursor:'pointer', boxShadow:'0 4px 16px rgba(244,147,6,0.4)', display:'flex', alignItems:'center', justifyContent:'center' }}
+        title="Guide d'utilisation"
+      >?</button>
     </div>
   )
 }
@@ -1485,6 +1717,34 @@ function EditModal({ entry, piersPct, investPct, onSave, onClose }) {
             style={{ background:P.orange, border:'none', borderRadius:100, padding:'12px 32px', color:'#fff', fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:"'Space Grotesk',sans-serif", opacity:saving?0.7:1 }}>
             {saving ? 'Enregistrement…' : '✓ Enregistrer'}
           </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── TutorialOverlay ───────────────────────────────────────────────────
+function TutorialOverlay({ steps, step, onNext, onBack, onClose }) {
+  const s = steps[step]
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(26,10,0,0.7)', zIndex:3000, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}>
+      <div style={{ background:'#fff', borderRadius:20, padding:40, maxWidth:480, width:'100%', textAlign:'center' }}>
+        <div style={{ fontSize:48, marginBottom:12 }}>{s.icon}</div>
+        <div style={{ fontSize:11, letterSpacing:'0.15em', textTransform:'uppercase', color:P.muted, marginBottom:8 }}>
+          Étape {step+1} / {steps.length}
+        </div>
+        <div style={{ fontSize:22, fontWeight:700, color:P.text, marginBottom:12 }}>{s.title}</div>
+        <div style={{ fontSize:15, color:P.muted, lineHeight:1.7, marginBottom:32 }}>{s.desc}</div>
+        <div style={{ display:'flex', gap:8, justifyContent:'center', alignItems:'center' }}>
+          {step > 0 && <button onClick={onBack} style={{ background:'transparent', border:'none', color:P.muted, fontSize:14, cursor:'pointer', padding:'10px 20px', fontFamily:"'Space Grotesk',sans-serif" }}>← Retour</button>}
+          <button onClick={onNext} style={{ background:P.orange, border:'none', borderRadius:100, padding:'12px 32px', color:'#fff', fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:"'Space Grotesk',sans-serif" }}>
+            {step < steps.length-1 ? 'Suivant →' : '✓ Commencer'}
+          </button>
+        </div>
+        <button onClick={onClose} style={{ marginTop:16, background:'none', border:'none', color:P.subtle, fontSize:12, cursor:'pointer', display:'block', margin:'16px auto 0', fontFamily:"'Space Grotesk',sans-serif" }}>Passer le tutoriel</button>
+        {/* Step dots */}
+        <div style={{ display:'flex', gap:6, justifyContent:'center', marginTop:20 }}>
+          {steps.map((_,i)=><div key={i} style={{ width:8, height:8, borderRadius:'50%', background:i===step?P.orange:'rgba(0,0,0,0.12)' }}/>)}
         </div>
       </div>
     </div>
