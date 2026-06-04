@@ -125,6 +125,8 @@ export default function MoneyTime({ onBack, lang, setLang }) {
   const [salaryOnboardingMode, setSalaryOnboardingMode] = useState(false)
   const [salaryOnboardingRows, setSalaryOnboardingRows] = useState({})
   const [salaryOnboardingSaving, setSalaryOnboardingSaving] = useState(false)
+  const [salaryOnboardingError, setSalaryOnboardingError] = useState('')
+  const [salaryOnboardingSaved, setSalaryOnboardingSaved] = useState(false)
   const [editingMonth, setEditingMonth] = useState(null)
   const [editMonthValue, setEditMonthValue] = useState('')
   const [editMonthNote, setEditMonthNote] = useState('')
@@ -320,19 +322,55 @@ export default function MoneyTime({ onBack, lang, setLang }) {
     await loadSalaryHistory()
   }
 
+  // Helper: update a single row's amount in onboarding state
+  function updateRow(month, value) {
+    setSalaryOnboardingRows(prev => ({ ...prev, [month]: { ...prev[month], amount: value } }))
+  }
+
   async function saveOnboardingSalaries() {
+    setSalaryOnboardingError('')
     setSalaryOnboardingSaving(true)
-    const rows = Object.entries(salaryOnboardingRows).filter(([, v]) => v && parseFloat(v.amount) > 0)
-    for (const [month, { amount, note }] of rows) {
-      await supabase.from('mt_salaries').upsert(
-        { month, person: 'piers', amount: parseFloat(amount), notes: note || 'Payslip' },
-        { onConflict: 'month,person' }
-      )
+
+    // Build batch insert from state — one row per month that has a valid amount
+    const inserts = Object.entries(salaryOnboardingRows)
+      .filter(([, v]) => v && parseFloat(v.amount) > 0)
+      .map(([month, v]) => ({
+        month,               // 'yyyy-MM'
+        person: 'piers',
+        amount: parseFloat(v.amount),
+      }))
+
+    console.log('[mt_salaries] saving', inserts.length, 'rows:', inserts)
+
+    if (inserts.length === 0) {
+      // Nothing entered — skip straight to dashboard
+      localStorage.setItem('mt_salary_onboarding_done', '1')
+      setSalaryOnboardingSaving(false)
+      setSalaryOnboardingMode(false)
+      return
     }
+
+    const { data, error } = await supabase
+      .from('mt_salaries')
+      .upsert(inserts, { onConflict: 'month,person' })
+
+    console.log('[mt_salaries] upsert result:', { data, error })
+
+    if (error) {
+      console.error('[mt_salaries] save failed:', error)
+      setSalaryOnboardingError(`${error.message} (code: ${error.code})`)
+      setSalaryOnboardingSaving(false)
+      return
+    }
+
     localStorage.setItem('mt_salary_onboarding_done', '1')
-    setSalaryOnboardingMode(false)
+    setSalaryOnboardingSaved(true)
     setSalaryOnboardingSaving(false)
     await loadSalaryHistory()
+    setTimeout(() => {
+      setSalaryOnboardingMode(false)
+      setSalaryOnboardingSaved(false)
+    }, 1000)
   }
 
   function handleRowPayslipClick(month) {
@@ -701,27 +739,58 @@ export default function MoneyTime({ onBack, lang, setLang }) {
             </div>
           </div>
 
+          {/* Error banner */}
+          {salaryOnboardingError && (
+            <div style={{ background:'rgba(255,78,78,0.1)', border:'1px solid rgba(255,78,78,0.4)', borderRadius:8, padding:'12px 16px', marginBottom:16 }}>
+              <div style={{ fontSize:13, color:'var(--v-red)', fontWeight:600, marginBottom:4 }}>
+                ⚠ Erreur lors de l'enregistrement
+              </div>
+              <div style={{ fontSize:11, color:'#ff8080', fontFamily:'var(--font-mono)', wordBreak:'break-all' }}>
+                {salaryOnboardingError}
+              </div>
+              <button onClick={()=>setSalaryOnboardingError('')}
+                style={{ marginTop:6, fontSize:10, color:'var(--v-muted)', background:'none', border:'none', cursor:'pointer', textDecoration:'underline', fontFamily:'var(--font-mono)' }}>
+                Fermer
+              </button>
+            </div>
+          )}
+
+          {/* Success state */}
+          {salaryOnboardingSaved && (
+            <div style={{ background:'rgba(78,255,145,0.12)', border:'1px solid rgba(78,255,145,0.4)', borderRadius:8, padding:'16px', marginBottom:16, textAlign:'center' }}>
+              <div style={{ fontSize:18, color:'var(--v-green)', fontWeight:700 }}>✅ Saved! Redirecting…</div>
+            </div>
+          )}
+
           <div style={{ ...S.card, marginBottom:20 }}>
-            <div style={{ display:'grid', gridTemplateColumns:'140px 1fr 1fr auto', gap:10, marginBottom:10 }}>
-              {['Month','Net salary (€)','Note','Payslip'].map(h=>(
+            {/* Column headers */}
+            <div style={{ display:'grid', gridTemplateColumns:'150px 1fr auto', gap:10, marginBottom:8, paddingBottom:8, borderBottom:'1px solid var(--v-glass-border)' }}>
+              {['Month','Net salary (€)','📄'].map(h=>(
                 <div key={h} style={{ ...S.label, marginBottom:0, fontSize:10 }}>{h}</div>
               ))}
             </div>
-            <div style={{ display:'flex', flexDirection:'column', gap:6, maxHeight:500, overflowY:'auto' }}>
-              {MT_SALARY_MONTHS.map(ym=>{
+            <div style={{ display:'flex', flexDirection:'column', gap:8, maxHeight:480, overflowY:'auto' }}>
+              {MT_SALARY_MONTHS.slice().reverse().map(ym=>{
                 const row = salaryOnboardingRows[ym] || {}
-                const set = p => setSalaryOnboardingRows(prev=>({ ...prev, [ym]:{ ...prev[ym], ...p } }))
-                const isLoading = rowPayslipLoading[ym]
+                const isLoading = !!rowPayslipLoading[ym]
                 return (
-                  <div key={ym} style={{ display:'grid', gridTemplateColumns:'140px 1fr 1fr auto', gap:10, alignItems:'center' }}>
-                    <div style={{ fontSize:13, color:'var(--v-text)', fontWeight:500 }}>{monthLabelMT(ym, lang)}</div>
-                    <input style={{ ...S.input, padding:'7px 10px', fontSize:13 }} type="number" placeholder="€ 0"
-                      value={row.amount||''} onChange={e=>set({ amount:e.target.value })}/>
-                    <input style={{ ...S.input, padding:'7px 10px', fontSize:13 }} placeholder="Payslip"
-                      value={row.note||''} onChange={e=>set({ note:e.target.value })}/>
-                    <button onClick={()=>handleRowPayslipClick(ym)} disabled={isLoading}
-                      style={{ ...S.btn, padding:'7px 10px', fontSize:11, opacity:isLoading?0.6:1, whiteSpace:'nowrap' }}>
-                      {isLoading ? '⏳' : '📄 Scan'}
+                  <div key={ym} style={{ display:'grid', gridTemplateColumns:'150px 1fr auto', gap:10, alignItems:'center' }}>
+                    <div style={{ fontSize:13, color:'var(--v-text)', fontWeight:500 }}>
+                      {monthLabelMT(ym, lang)}
+                    </div>
+                    <input
+                      type="number"
+                      style={{ ...S.input, padding:'8px 10px', fontSize:14 }}
+                      value={row.amount || ''}
+                      onChange={e => updateRow(ym, e.target.value)}
+                      placeholder="€ 0"
+                    />
+                    <button
+                      onClick={() => handleRowPayslipClick(ym)}
+                      disabled={isLoading}
+                      title="Scan payslip"
+                      style={{ ...S.btn, padding:'8px 12px', fontSize:12, opacity:isLoading?0.5:1, background:'rgba(106,180,255,0.15)', border:'1px solid rgba(106,180,255,0.3)', color:'var(--v-accent)' }}>
+                      {isLoading ? '⏳' : '📄'}
                     </button>
                   </div>
                 )
@@ -730,11 +799,14 @@ export default function MoneyTime({ onBack, lang, setLang }) {
           </div>
 
           <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:14 }}>
-            <button style={{ ...S.btn, fontSize:15, padding:'14px 36px', opacity:salaryOnboardingSaving?0.6:1 }}
-              onClick={saveOnboardingSalaries} disabled={salaryOnboardingSaving}>
-              {salaryOnboardingSaving ? 'Saving…' : '💾 Save all & start'}
+            <button
+              style={{ ...S.btn, fontSize:15, padding:'14px 40px', opacity:(salaryOnboardingSaving||salaryOnboardingSaved)?0.7:1 }}
+              onClick={saveOnboardingSalaries}
+              disabled={salaryOnboardingSaving || salaryOnboardingSaved}>
+              {salaryOnboardingSaving ? '⏳ Saving…' : salaryOnboardingSaved ? '✅ Saved!' : '💾 Save all & start'}
             </button>
-            <button style={{ background:'none', border:'none', color:'var(--v-muted)', fontSize:13, cursor:'pointer', textDecoration:'underline', fontFamily:'var(--font-mono)' }}
+            <button
+              style={{ background:'none', border:'none', color:'var(--v-muted)', fontSize:13, cursor:'pointer', textDecoration:'underline', fontFamily:'var(--font-mono)' }}
               onClick={()=>{ localStorage.setItem('mt_salary_onboarding_done','1'); setSalaryOnboardingMode(false) }}>
               Skip — I'll add history later
             </button>
