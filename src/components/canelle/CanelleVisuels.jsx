@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase.js'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line } from 'recharts'
-import { format } from 'date-fns'
+import { format, subMonths } from 'date-fns'
 
 // ── Palette ───────────────────────────────────────────────────────────
 const P = {
@@ -195,6 +195,17 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
     try { return JSON.parse(localStorage.getItem('cv_urssaf_paid')||'{}') } catch { return {} }
   })
 
+  // URSSAF monthly reminder
+  const _prevMonth = format(subMonths(new Date(), 1), 'yyyy-MM')
+  const [urssafBannerDismissed, setUrssafBannerDismissed] = useState(() => {
+    if (localStorage.getItem(`cv_urssaf_paid_${_prevMonth}`) === '1') return true
+    const snooze = localStorage.getItem(`cv_urssaf_snooze_${_prevMonth}`)
+    return !!(snooze && Date.now() < parseInt(snooze))
+  })
+  const [urssafLog, setUrssafLog] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('cv_urssaf_log') || '[]') } catch { return [] }
+  })
+
   // Edit / manage modals
   const [editEntry, setEditEntry] = useState(null)       // null = closed, object = entry being edited
   const [showAllEntries, setShowAllEntries] = useState(false)
@@ -320,6 +331,24 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
     loadAllIncome()
   }
 
+  // ── URSSAF monthly reminder actions ───────────────────────────────
+  function markUrssafMonthPaid(month, amount) {
+    localStorage.setItem(`cv_urssaf_paid_${month}`, '1')
+    const existing = JSON.parse(localStorage.getItem('cv_urssaf_log') || '[]')
+    const entry = { month, amount: Math.round(amount * 100) / 100, paidDate: format(new Date(), 'yyyy-MM-dd') }
+    const idx = existing.findIndex(e => e.month === month)
+    if (idx >= 0) existing[idx] = entry; else existing.unshift(entry)
+    localStorage.setItem('cv_urssaf_log', JSON.stringify(existing))
+    setUrssafLog([...existing])
+    setUrssafBannerDismissed(true)
+  }
+
+  function snoozeUrssafBanner(month) {
+    const until = Date.now() + 24 * 60 * 60 * 1000 // 24 hours
+    localStorage.setItem(`cv_urssaf_snooze_${month}`, String(until))
+    setUrssafBannerDismissed(true)
+  }
+
   // ── Onboarding ─────────────────────────────────────────────────────
   async function saveOnboarding() {
     setOnboardingSaving(true)
@@ -423,6 +452,20 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
   const currentMonthStr = format(new Date(),'yyyy-MM')
   const currentMonthGross = income.filter(r=>r.date?.startsWith(currentMonthStr))
     .reduce((s,r)=>s+(r.amount_gross||0),0)
+
+  // URSSAF monthly reminder — previous month's amounts and paid status
+  const prevMonth = format(subMonths(new Date(), 1), 'yyyy-MM')
+  const prevMonthLabel = monthLabel(prevMonth)
+  const prevMonthUrssafAmt = allIncome
+    .filter(r => r.date?.startsWith(prevMonth))
+    .reduce((s,r) => s + (r.amount_urssaf || 0), 0)
+  const prevMonthIsPaid = localStorage.getItem(`cv_urssaf_paid_${prevMonth}`) === '1'
+  const showUrssafBanner = !urssafBannerDismissed && !prevMonthIsPaid
+  // Current month URSSAF for the status indicator
+  const currentMonthUrssaf = allIncome
+    .filter(r => r.date?.startsWith(currentMonthStr))
+    .reduce((s,r) => s + (r.amount_urssaf || 0), 0)
+  const currentMonthUrssafPaid = localStorage.getItem(`cv_urssaf_paid_${currentMonthStr}`) === '1'
 
   const monthlyData = Array.from({length:12},(_,i)=>{
     const m = String(i+1).padStart(2,'0')
@@ -625,6 +668,34 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
         {tab==='dashboard' && (
           <div style={{ display:'flex', flexDirection:'column', gap:24 }} className="page-enter">
 
+            {/* ── URSSAF REMINDER BANNER ── */}
+            {showUrssafBanner && (
+              <div style={{ background:P.orange, borderRadius:12, padding:'20px 24px', display:'flex', alignItems:'center', gap:20, flexWrap:'wrap' }}>
+                <div style={{ flex:1, minWidth:240 }}>
+                  <div style={{ fontSize:16, fontWeight:700, color:'#fff', marginBottom:4 }}>
+                    💰 URSSAF à payer pour {prevMonthLabel}
+                  </div>
+                  <div style={{ fontSize:14, color:'rgba(255,255,255,0.85)' }}>
+                    Montant calculé sur vos revenus de {prevMonthLabel} :{' '}
+                    <strong>€{prevMonthUrssafAmt.toFixed(2)}</strong>
+                    {prevMonthUrssafAmt === 0 && ' (aucun revenu enregistré ce mois)'}
+                  </div>
+                </div>
+                <div style={{ display:'flex', gap:12, alignItems:'center', flexShrink:0, flexWrap:'wrap' }}>
+                  <button
+                    onClick={() => markUrssafMonthPaid(prevMonth, prevMonthUrssafAmt)}
+                    style={{ background:'#fff', border:'none', borderRadius:100, padding:'10px 22px', color:P.orange, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:"'Space Grotesk',sans-serif", whiteSpace:'nowrap' }}>
+                    ✅ Marqué comme payé
+                  </button>
+                  <button
+                    onClick={() => snoozeUrssafBanner(prevMonth)}
+                    style={{ background:'transparent', border:'none', color:'rgba(255,255,255,0.8)', fontSize:13, cursor:'pointer', fontFamily:"'Space Grotesk',sans-serif", textDecoration:'underline', whiteSpace:'nowrap' }}>
+                    Me rappeler plus tard
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Goal circle */}
             <div style={S.accentCard(P.orange)}>
               <div style={{ display:'flex', alignItems:'center', gap:32, flexWrap:'wrap' }}>
@@ -770,6 +841,43 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
                   <div style={{ fontSize:11, color:P.subtle, marginTop:8 }}>{sub}</div>
                 </div>
               ))}
+            </div>
+
+            {/* URSSAF this-month status indicator */}
+            <div style={{ display:'flex', gap:12, alignItems:'center', padding:'12px 16px', background:'#fff', borderRadius:10, flexWrap:'wrap' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                {currentMonthUrssafPaid
+                  ? <span style={{ fontSize:18 }}>✅</span>
+                  : <span style={{ fontSize:18 }}>⚠️</span>}
+                <div>
+                  <div style={{ fontSize:12, color:P.muted, letterSpacing:'0.1em', textTransform:'uppercase', fontWeight:600 }}>
+                    URSSAF {format(new Date(),'MMMM yyyy')}
+                  </div>
+                  <div style={{ fontSize:14, fontWeight:700, color:currentMonthUrssafPaid?P.green:P.orange }}>
+                    {currentMonthUrssafPaid ? 'Payé ✓' : `€${currentMonthUrssaf.toFixed(2)} à provisionner`}
+                  </div>
+                </div>
+              </div>
+              {!currentMonthUrssafPaid && currentMonthUrssaf > 0 && (
+                <button onClick={() => markUrssafMonthPaid(currentMonthStr, currentMonthUrssaf)}
+                  style={{ marginLeft:'auto', background:'transparent', border:`1.5px solid ${P.orange}`, borderRadius:100, padding:'6px 18px', color:P.orange, fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:"'Space Grotesk',sans-serif", whiteSpace:'nowrap' }}>
+                  Marquer payé
+                </button>
+              )}
+              {urssafLog.length > 0 && (
+                <details style={{ marginLeft:currentMonthUrssaf>0?0:'auto', fontSize:12, color:P.muted, cursor:'pointer' }}>
+                  <summary style={{ listStyle:'none', cursor:'pointer', userSelect:'none' }}>📋 Historique paiements</summary>
+                  <div style={{ marginTop:8, display:'flex', flexDirection:'column', gap:4, minWidth:260 }}>
+                    {urssafLog.slice(0, 6).map(e => (
+                      <div key={e.month} style={{ display:'flex', justifyContent:'space-between', gap:16, fontSize:12 }}>
+                        <span style={{ color:P.text }}>{monthLabel(e.month)}</span>
+                        <span style={{ color:P.green, fontWeight:600 }}>€{e.amount.toFixed(2)}</span>
+                        <span style={{ color:P.subtle }}>{e.paidDate}</span>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
             </div>
 
             {ytdGross>0 && (
