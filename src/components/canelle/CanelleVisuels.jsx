@@ -195,6 +195,10 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
     try { return JSON.parse(localStorage.getItem('cv_urssaf_paid')||'{}') } catch { return {} }
   })
 
+  // Edit / manage modals
+  const [editEntry, setEditEntry] = useState(null)       // null = closed, object = entry being edited
+  const [showAllEntries, setShowAllEntries] = useState(false)
+
   // Add income form
   const [form, setForm] = useState({ client:'', amount:'', date:format(new Date(),'yyyy-MM-dd'), cat:'bnc_services', desc:'' })
 
@@ -289,6 +293,31 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
     const updated = oneOffExpenses.filter(e => e.id !== id)
     setOneOffExpenses(updated)
     localStorage.setItem('cv_oneoff', JSON.stringify(updated))
+  }
+
+  // ── Income edit / delete ───────────────────────────────────────────
+  async function saveEdit(form) {
+    if (!editEntry) return
+    const gross = parseFloat(form.amount) || 0
+    const rate = URSSAF_CATEGORIES.find(c => c.id === form.cat)?.rate || 0.22
+    const urssaf = gross * rate, net = gross - urssaf
+    const toPiers = net * (piersPct / 100), company = net * (investPct / 100), salary = net - toPiers - company
+    const { error } = await supabase.from('cv_income').update({
+      client: form.client, amount_gross: gross, amount_urssaf: urssaf,
+      amount_after_urssaf: net, amount_to_piers_wise: toPiers,
+      amount_company: company, amount_salary: salary,
+      date: form.date, category: form.cat, description: form.desc
+    }).eq('id', editEntry.id)
+    if (error) { console.error('[cv_income] update error:', error); return }
+    setEditEntry(null)
+    loadAllIncome()
+  }
+
+  async function deleteEntry(id) {
+    if (!window.confirm('Supprimer cette entrée ?')) return
+    const { error } = await supabase.from('cv_income').delete().eq('id', id)
+    if (error) { console.error('[cv_income] delete error:', error); return }
+    loadAllIncome()
   }
 
   // ── Onboarding ─────────────────────────────────────────────────────
@@ -621,6 +650,13 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
               </div>
             </div>
 
+            {/* Quick access — manage all entries */}
+            <div style={{ display:'flex', justifyContent:'flex-end' }}>
+              <button onClick={()=>setShowAllEntries(true)} style={{ ...S.btnGhost(), fontSize:13 }}>
+                📋 {lang==='en'?'Manage all entries':'Gérer toutes les entrées'}
+              </button>
+            </div>
+
             {/* Add income */}
             <div ref={addIncomeRef} style={S.accentCard(P.orange)}>
               <style>{`
@@ -877,6 +913,41 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
                 </tbody>
               </table>
             </div>
+            {/* Monthly entries — individual rows with edit/delete */}
+            <div style={S.card}>
+              <div style={{ ...S.label, marginBottom:16 }}>Entrées par mois</div>
+              {ONBOARDING_MONTHS.slice().reverse().map(ym => {
+                const entries = allIncome.filter(r => r.date?.startsWith(ym))
+                if (entries.length === 0) return null
+                const monthGross = entries.reduce((s,r) => s + (r.amount_gross||0), 0)
+                return (
+                  <div key={ym} style={{ marginBottom:20 }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8, paddingBottom:6, borderBottom:'1px solid rgba(0,0,0,0.06)' }}>
+                      <div style={{ fontSize:13, fontWeight:700, color:P.text }}>{monthLabel(ym)}</div>
+                      <div style={{ fontSize:16, fontWeight:700, color:P.orange }}>€{Math.round(monthGross).toLocaleString()}</div>
+                    </div>
+                    {entries.map(r => (
+                      <div key={r.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'7px 0', borderBottom:'1px solid rgba(0,0,0,0.04)', fontSize:13 }}>
+                        <div style={{ color:P.muted, fontSize:12, minWidth:70 }}>{r.date?.slice(5)}</div>
+                        <div style={{ flex:1, color:P.text }}>{r.client||'—'}</div>
+                        <div style={{ fontWeight:600, color:P.text }}>€{Math.round(r.amount_gross)}</div>
+                        <div style={{ color:P.red, fontSize:12 }}>−€{Math.round(r.amount_urssaf)}</div>
+                        <div style={{ color:P.green, fontWeight:600, fontSize:12 }}>net €{Math.round(r.amount_after_urssaf)}</div>
+                        <button onClick={()=>setEditEntry(r)}
+                          style={{ background:'none', border:'none', cursor:'pointer', fontSize:14, padding:'2px 4px', opacity:0.7 }}
+                          title="Modifier">✏️</button>
+                        <button onClick={()=>deleteEntry(r.id)}
+                          style={{ background:'none', border:'none', cursor:'pointer', fontSize:14, padding:'2px 4px', opacity:0.7 }}
+                          title="Supprimer">🗑️</button>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })}
+              {allIncome.length === 0 && (
+                <div style={{ color:P.muted, fontSize:14, textAlign:'center', padding:24 }}>Aucune entrée enregistrée.</div>
+              )}
+            </div>
           </div>
         )}
 
@@ -968,34 +1039,42 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
                   </div>
                 : <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
                     <thead><tr>
-                      {['Date','Client','Brut','URSSAF','Net','→ Wise','Catégorie'].map(h=>(
-                        <th key={h} style={{ padding:'8px 12px', textAlign:'left', borderBottom:`1px solid ${P.border}`, fontSize:10, letterSpacing:'0.1em', textTransform:'uppercase', color:P.muted }}>{h}</th>
+                      {['Date','Client','Brut','URSSAF','Net','→ Wise','Catégorie',''].map(h=>(
+                        <th key={h} style={{ padding:'8px 12px', textAlign:'left', borderBottom:'2px solid #e8e0d8', fontSize:10, letterSpacing:'0.1em', textTransform:'uppercase', color:P.muted }}>{h}</th>
                       ))}
                     </tr></thead>
                     <tbody>
                       {income.map(r=>(
                         <tr key={r.id} style={{ borderBottom:'1px solid rgba(0,0,0,0.05)' }}>
-                          <td style={{ padding:'10px 12px', color:P.muted }}>{r.date}</td>
+                          <td style={{ padding:'10px 12px', color:P.muted, whiteSpace:'nowrap' }}>{r.date}</td>
                           <td style={{ padding:'10px 12px', fontWeight:500, color:P.text }}>{r.client||'—'}</td>
                           <td style={{ padding:'10px 12px', color:P.text, fontWeight:600 }}>€{Math.round(r.amount_gross)}</td>
                           <td style={{ padding:'10px 12px', color:P.red }}>−€{Math.round(r.amount_urssaf)}</td>
                           <td style={{ padding:'10px 12px', color:P.green, fontWeight:600 }}>€{Math.round(r.amount_after_urssaf)}</td>
                           <td style={{ padding:'10px 12px', color:P.blue }}>€{Math.round(r.amount_to_piers_wise||0)}</td>
                           <td style={{ padding:'10px 12px' }}>
-                            <span style={{ fontSize:11, padding:'3px 8px', borderRadius:4, background:P.surface2, color:P.muted, border:`1px solid ${P.border}` }}>
-                              {URSSAF_CATEGORIES.find(c=>c.id===r.category)?.label||r.category}
+                            <span style={{ fontSize:11, padding:'3px 8px', borderRadius:100, background:'rgba(244,147,6,0.1)', color:P.orange }}>
+                              {URSSAF_CATEGORIES.find(c=>c.id===r.category)?.label?.split('(')[0]?.trim()||r.category}
                             </span>
+                          </td>
+                          <td style={{ padding:'10px 8px', whiteSpace:'nowrap' }}>
+                            <button onClick={()=>setEditEntry(r)}
+                              style={{ background:'none', border:'none', cursor:'pointer', fontSize:15, padding:'4px 6px', opacity:0.75 }}
+                              title="Modifier">✏️</button>
+                            <button onClick={()=>deleteEntry(r.id)}
+                              style={{ background:'none', border:'none', cursor:'pointer', fontSize:15, padding:'4px 6px', opacity:0.75 }}
+                              title="Supprimer">🗑️</button>
                           </td>
                         </tr>
                       ))}
                     </tbody>
-                    <tfoot><tr style={{ borderTop:`1px solid ${P.border}` }}>
+                    <tfoot><tr style={{ borderTop:'2px solid #e8e0d8' }}>
                       <td colSpan={2} style={{ padding:'10px 12px', fontSize:12, fontWeight:700, color:P.text }}>TOTAL {selectedYear}</td>
                       <td style={{ padding:'10px 12px', color:P.text, fontWeight:700 }}>€{Math.round(ytdGross).toLocaleString()}</td>
                       <td style={{ padding:'10px 12px', color:P.red, fontWeight:700 }}>−€{Math.round(ytdUrssaf).toLocaleString()}</td>
                       <td style={{ padding:'10px 12px', color:P.green, fontWeight:700 }}>€{Math.round(ytdNet).toLocaleString()}</td>
                       <td style={{ padding:'10px 12px', color:P.blue, fontWeight:700 }}>€{Math.round(ytdToPiers).toLocaleString()}</td>
-                      <td/>
+                      <td colSpan={2}/>
                     </tr></tfoot>
                   </table>
               }
@@ -1141,6 +1220,27 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
           </div>
         )}
       </div>
+
+      {/* ── EDIT MODAL ── */}
+      {editEntry && (
+        <EditModal
+          entry={editEntry}
+          piersPct={piersPct}
+          investPct={investPct}
+          onSave={saveEdit}
+          onClose={()=>setEditEntry(null)}
+        />
+      )}
+
+      {/* ── ALL ENTRIES MODAL ── */}
+      {showAllEntries && (
+        <AllEntriesModal
+          allIncome={allIncome}
+          onEdit={r=>{ setShowAllEntries(false); setEditEntry(r) }}
+          onDelete={deleteEntry}
+          onClose={()=>setShowAllEntries(false)}
+        />
+      )}
     </div>
   )
 }
@@ -1184,6 +1284,148 @@ function CVWishCard({ item, onMarkBought, onDelete, S, lang }) {
           {lang==='en'?'Mark as bought ✓':'Marquer acheté ✓'}
         </button>
         <button onClick={()=>onDelete(item.id)} style={S.btnDanger}>✕</button>
+      </div>
+    </div>
+  )
+}
+
+// ── Shared modal styles ───────────────────────────────────────────────
+const ML = { display:'block', fontSize:11, letterSpacing:'0.13em', textTransform:'uppercase', color:P.muted, marginBottom:6, fontWeight:600, fontFamily:"'Space Grotesk',sans-serif" }
+const MI = { display:'block', width:'100%', padding:'10px 2px', background:'transparent', border:'none', borderBottom:'2px solid #e8e0d8', fontSize:14, color:P.text, fontFamily:"'Space Grotesk',sans-serif", outline:'none', boxSizing:'border-box' }
+
+// ── EditModal ─────────────────────────────────────────────────────────
+function EditModal({ entry, piersPct, investPct, onSave, onClose }) {
+  const [form, setForm] = useState({
+    client: entry.client || '',
+    amount: String(entry.amount_gross || ''),
+    date: entry.date || '',
+    cat: entry.category || 'bnc_services',
+    desc: entry.description || ''
+  })
+  const [saving, setSaving] = useState(false)
+
+  const gross = parseFloat(form.amount) || 0
+  const rate = URSSAF_CATEGORIES.find(c => c.id === form.cat)?.rate || 0.22
+  const urssaf = gross * rate
+  const net = gross - urssaf
+
+  async function handleSave() {
+    setSaving(true)
+    await onSave(form)
+    setSaving(false)
+  }
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(26,10,0,0.5)', zIndex:2000, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}>
+      <div style={{ background:'#fff', borderRadius:16, padding:32, width:520, maxWidth:'100%', maxHeight:'90vh', overflow:'auto' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:24 }}>
+          <div style={{ fontSize:18, fontWeight:700, color:P.text }}>Modifier l'entrée</div>
+          <button onClick={onClose} style={{ background:'none', border:'none', fontSize:24, cursor:'pointer', color:P.muted, lineHeight:1, padding:'0 4px' }}>×</button>
+        </div>
+
+        <div style={{ display:'flex', flexDirection:'column', gap:18, marginBottom:24 }}>
+          <div>
+            <label style={ML}>Client</label>
+            <input style={MI} value={form.client} onChange={e=>setForm(p=>({...p,client:e.target.value}))} placeholder="Nom du client"/>
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
+            <div>
+              <label style={ML}>Montant brut (€)</label>
+              <input style={MI} type="number" value={form.amount} onChange={e=>setForm(p=>({...p,amount:e.target.value}))} placeholder="0.00"/>
+            </div>
+            <div>
+              <label style={ML}>Date</label>
+              <input style={MI} type="date" value={form.date} onChange={e=>setForm(p=>({...p,date:e.target.value}))}/>
+            </div>
+          </div>
+          <div>
+            <label style={ML}>Catégorie URSSAF</label>
+            <select style={MI} value={form.cat} onChange={e=>setForm(p=>({...p,cat:e.target.value}))}>
+              {URSSAF_CATEGORIES.map(c=><option key={c.id} value={c.id}>{c.label} ({(c.rate*100).toFixed(1)}%)</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={ML}>Note</label>
+            <input style={MI} value={form.desc} onChange={e=>setForm(p=>({...p,desc:e.target.value}))} placeholder="Note optionnelle"/>
+          </div>
+        </div>
+
+        {/* Live URSSAF preview */}
+        {gross > 0 && (
+          <div style={{ background:'#F7F4F0', borderRadius:10, padding:16, marginBottom:24, fontSize:13 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+              <span style={{ color:P.muted }}>Montant brut</span>
+              <span style={{ fontWeight:600, color:P.text }}>€{gross.toFixed(2)}</span>
+            </div>
+            <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+              <span style={{ color:P.muted }}>URSSAF ({Math.round(rate*100)}%)</span>
+              <span style={{ color:P.red }}>−€{urssaf.toFixed(2)}</span>
+            </div>
+            <div style={{ height:1, background:'#e8e0d8', margin:'8px 0' }}/>
+            <div style={{ display:'flex', justifyContent:'space-between', fontWeight:700 }}>
+              <span style={{ color:P.green }}>Net personnel</span>
+              <span style={{ color:P.green }}>€{net.toFixed(2)}</span>
+            </div>
+          </div>
+        )}
+
+        <div style={{ display:'flex', gap:12, justifyContent:'flex-end' }}>
+          <button onClick={onClose} style={{ background:'transparent', border:'none', color:P.muted, fontSize:14, cursor:'pointer', padding:'12px 20px', fontFamily:"'Space Grotesk',sans-serif" }}>
+            Annuler
+          </button>
+          <button onClick={handleSave} disabled={saving}
+            style={{ background:P.orange, border:'none', borderRadius:100, padding:'12px 32px', color:'#fff', fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:"'Space Grotesk',sans-serif", opacity:saving?0.7:1 }}>
+            {saving ? 'Enregistrement…' : '✓ Enregistrer'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── AllEntriesModal ───────────────────────────────────────────────────
+function AllEntriesModal({ allIncome, onEdit, onDelete, onClose }) {
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(26,10,0,0.5)', zIndex:2000, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}>
+      <div style={{ background:'#fff', borderRadius:16, padding:32, width:900, maxWidth:'100%', maxHeight:'90vh', overflow:'auto' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:24 }}>
+          <div>
+            <div style={{ fontSize:18, fontWeight:700, color:P.text }}>Toutes les entrées de revenus</div>
+            <div style={{ fontSize:12, color:P.muted, marginTop:4 }}>{allIncome.length} entrée{allIncome.length!==1?'s':''} au total</div>
+          </div>
+          <button onClick={onClose} style={{ background:'none', border:'none', fontSize:24, cursor:'pointer', color:P.muted, lineHeight:1, padding:'0 4px' }}>×</button>
+        </div>
+
+        {allIncome.length === 0
+          ? <div style={{ textAlign:'center', padding:40, color:P.muted, fontSize:14 }}>Aucun revenu enregistré.</div>
+          : <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+              <thead><tr>
+                {['Date','Client','Brut','URSSAF','Net','Catégorie','Actions'].map(h=>(
+                  <th key={h} style={{ padding:'8px 12px', textAlign:'left', borderBottom:'2px solid #e8e0d8', fontSize:10, letterSpacing:'0.1em', textTransform:'uppercase', color:P.muted }}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {allIncome.map(r=>(
+                  <tr key={r.id} style={{ borderBottom:'1px solid rgba(0,0,0,0.05)' }}>
+                    <td style={{ padding:'10px 12px', color:P.muted, whiteSpace:'nowrap' }}>{r.date}</td>
+                    <td style={{ padding:'10px 12px', color:P.text }}>{r.client||'—'}</td>
+                    <td style={{ padding:'10px 12px', fontWeight:600, color:P.text }}>€{Math.round(r.amount_gross)}</td>
+                    <td style={{ padding:'10px 12px', color:P.red }}>−€{Math.round(r.amount_urssaf)}</td>
+                    <td style={{ padding:'10px 12px', color:P.green, fontWeight:600 }}>€{Math.round(r.amount_after_urssaf)}</td>
+                    <td style={{ padding:'10px 12px' }}>
+                      <span style={{ fontSize:11, padding:'3px 8px', borderRadius:100, background:'rgba(244,147,6,0.1)', color:P.orange, whiteSpace:'nowrap' }}>
+                        {URSSAF_CATEGORIES.find(c=>c.id===r.category)?.label?.split('(')[0]?.trim()||r.category}
+                      </span>
+                    </td>
+                    <td style={{ padding:'10px 8px', whiteSpace:'nowrap' }}>
+                      <button onClick={()=>onEdit(r)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:15, padding:'4px 6px', opacity:0.75 }} title="Modifier">✏️</button>
+                      <button onClick={()=>onDelete(r.id)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:15, padding:'4px 6px', opacity:0.75 }} title="Supprimer">🗑️</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+        }
       </div>
     </div>
   )
