@@ -621,30 +621,72 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
 
             {/* Add income */}
             <div ref={addIncomeRef} style={S.accentCard(P.orange)}>
-              <div style={{ marginBottom:16 }}>
-                <div style={{ ...S.label, color:P.orange }}>+ {t.add_income}</div>
-                <div style={{ fontSize:14, color:P.muted, marginTop:4 }}>
+              <style>{`
+                .cv-income-grid { display:grid; grid-template-columns:2fr 1.5fr 1fr 1.5fr auto; gap:16px; align-items:end; }
+                @media(max-width:600px){ .cv-income-grid { grid-template-columns:1fr !important; } }
+                .cv-field-label { font-size:11px; letter-spacing:0.13em; text-transform:uppercase; color:${P.muted}; margin-bottom:6px; font-weight:600; display:block; white-space:nowrap; }
+                .cv-field-hint  { font-size:11px; color:${P.subtle}; margin-bottom:6px; }
+                .cv-field-input { display:block; width:100%; height:44px; padding:0 0 0 2px; background:transparent; border:none; border-bottom:2px solid #e8e0d8; font-size:14px; color:${P.text}; font-family:'Space Grotesk',sans-serif; box-sizing:border-box; }
+                .cv-field-input:focus { border-bottom-color:${P.orange}; outline:none; }
+              `}</style>
+
+              <div style={{ marginBottom:20 }}>
+                <div style={{ ...S.label, color:P.orange, marginBottom:4 }}>+ {t.add_income}</div>
+                <div style={{ fontSize:13, color:P.muted }}>
                   {lang==='en'
-                    ? 'Add each payment received from your clients here — URSSAF and splits are calculated automatically.'
+                    ? 'Add each payment received from your clients — URSSAF and splits calculated automatically.'
                     : 'Ajoutez chaque paiement reçu de vos clients ici — l\'URSSAF et les répartitions sont calculés automatiquement.'}
                 </div>
               </div>
-              <div style={{ display:'grid', gridTemplateColumns:'2fr 1.5fr 1fr 1.5fr 2fr', gap:12, marginBottom:12 }}>
-                <div><div style={S.label}>{t.client}</div><input style={S.input} value={form.client} onChange={e=>setForm(p=>({...p,client:e.target.value}))} placeholder={lang==='en'?'Client or company name':'Nom du client ou entreprise'}/></div>
-                <div><div style={S.label}>{t.amount} — {lang==='en'?'gross, before URSSAF':'brut, avant URSSAF'}</div><input style={S.input} type="number" value={form.amount} onChange={e=>setForm(p=>({...p,amount:e.target.value}))} placeholder="0.00"/></div>
-                <div><div style={S.label}>{t.date}</div><input style={S.input} type="date" value={form.date} onChange={e=>setForm(p=>({...p,date:e.target.value}))}/></div>
-                <div><div style={S.label}>{t.urssaf_rate}</div>
-                  <select style={S.input} value={form.cat} onChange={e=>setForm(p=>({...p,cat:e.target.value}))}>
+
+              <div className="cv-income-grid">
+                {/* Client */}
+                <div>
+                  <span className="cv-field-label">{t.client}</span>
+                  <input className="cv-field-input" value={form.client}
+                    onChange={e=>setForm(p=>({...p,client:e.target.value}))}
+                    placeholder={lang==='en'?'Client or company name':'Nom du client ou entreprise'}/>
+                </div>
+
+                {/* Amount */}
+                <div>
+                  <span className="cv-field-label">{lang==='en'?'Amount (€ gross)':'Montant (€ brut)'}</span>
+                  <span className="cv-field-hint">{lang==='en'?'before URSSAF':'avant URSSAF'}</span>
+                  <input className="cv-field-input" type="number" value={form.amount}
+                    onChange={e=>setForm(p=>({...p,amount:e.target.value}))}
+                    placeholder="0.00"/>
+                </div>
+
+                {/* Date */}
+                <div>
+                  <span className="cv-field-label">{t.date}</span>
+                  <input className="cv-field-input" type="date" value={form.date}
+                    onChange={e=>setForm(p=>({...p,date:e.target.value}))}/>
+                </div>
+
+                {/* URSSAF category */}
+                <div>
+                  <span className="cv-field-label">{lang==='en'?'Category':'Catégorie'}</span>
+                  <select className="cv-field-input" value={form.cat}
+                    onChange={e=>setForm(p=>({...p,cat:e.target.value}))}>
                     {URSSAF_CATEGORIES.map(c=><option key={c.id} value={c.id}>{c.label} ({(c.rate*100).toFixed(1)}%)</option>)}
                   </select>
                 </div>
-                <div style={{ display:'flex', gap:8, alignItems:'flex-end' }}>
-                  <input style={S.input} value={form.desc} onChange={e=>setForm(p=>({...p,desc:e.target.value}))} placeholder={lang==='en'?'Optional note':'Note optionnelle'}/>
-                  <button style={{ ...S.btn, whiteSpace:'nowrap', fontSize:15, padding:'13px 28px' }} onClick={addIncome}>
-                    {lang==='en'?'✓ Record':'✓ Enregistrer'}
-                  </button>
-                </div>
+
+                {/* Submit button — align-items:end puts it flush with the inputs */}
+                <button style={{ ...S.btn, whiteSpace:'nowrap', height:44, padding:'0 28px', fontSize:14 }} onClick={addIncome}>
+                  {lang==='en'?'✓ Record':'✓ Enregistrer'}
+                </button>
               </div>
+
+              {/* Optional note — full width below the main grid */}
+              <div style={{ marginTop:12 }}>
+                <input className="cv-field-input" value={form.desc}
+                  onChange={e=>setForm(p=>({...p,desc:e.target.value}))}
+                  placeholder={lang==='en'?'Optional note (invoice #, project…)':'Note optionnelle (n° facture, projet…)'}
+                  style={{ width:'100%' }}/>
+              </div>
+
               {previewGross>0 && (
                 <div style={{ background:'#F7F4F0', borderRadius:8, padding:'14px 18px', marginTop:16 }}>
                   <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
