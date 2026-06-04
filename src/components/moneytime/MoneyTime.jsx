@@ -309,7 +309,7 @@ export default function MoneyTime({ onBack, lang, setLang }) {
     const amt = parseFloat(amount) || 0
     console.log('[mt_salaries] saving row:', { month, amt })
     const { error } = await supabase.from('mt_salaries').upsert(
-      { month, person: 'piers', amount: amt, notes: note || null },
+      { month, person: 'piers', amount: amt },
       { onConflict: 'month,person' }
     )
     if (error) {
