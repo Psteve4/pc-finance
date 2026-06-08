@@ -288,6 +288,9 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
     return localStorage.getItem(key) === '1'
   })
 
+  // Piers salary for current month (to show rent coverage note)
+  const [piersSalaryThisMonth, setPiersSalaryThisMonth] = useState(null)
+
   // Calendar & account overview
   const [calendarMonth, setCalendarMonth] = useState(format(new Date(), 'yyyy-MM'))
   const [calendarDayDetail, setCalendarDayDetail] = useState(null) // 'yyyy-MM-dd' of clicked day
@@ -314,6 +317,7 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
     loadWishlist()
     loadCVRecurring()
     loadAccountBalances()
+    loadPiersSalary()
     if (!localStorage.getItem('cv_onboarding_done')) {
       supabase.from('cv_income').select('id',{ count:'exact', head:true })
         .then(({ count }) => { if ((count||0) === 0) setOnboardingMode(true) })
@@ -356,13 +360,21 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
 
   async function loadAccountBalances() {
     try {
-      const ids = ['mono_canelle','wise_canelle','wise_piers','wise_assets']
+      const ids = ['mono_canelle','wise_canelle','wise_piers','wise_vacances','wise_maison']
       const { data } = await supabase.from('mt_balances').select('*').in('account_id', ids)
       const bals = {}, updAts = {}
       ;(data || []).forEach(b => { bals[b.account_id] = b.balance; updAts[b.account_id] = b.updated_at })
       setAccountBalances(bals)
       setAccountUpdatedAt(updAts)
     } catch(e) { console.log('[mt_balances] read error:', e) }
+  }
+
+  async function loadPiersSalary() {
+    try {
+      const currentMonth = format(new Date(), 'yyyy-MM')
+      const { data } = await supabase.from('mt_salaries').select('amount').eq('month', currentMonth).eq('person', 'piers').maybeSingle()
+      setPiersSalaryThisMonth(data?.amount ?? null)
+    } catch(e) { /* non-critical */ }
   }
 
   // ── Recurring actions ──────────────────────────────────────────────
@@ -1003,6 +1015,22 @@ export default function CanelleVisuels({ onBack, lang, setLang }) {
                       {label}: <strong style={{color:P.orange}}>€{Math.round(amt).toLocaleString()}</strong>
                     </div>
                   ))}
+
+                  {/* Rent — always shown, highlighted in pink */}
+                  <div style={{ marginTop:6, padding:'10px 14px', background:'rgba(224,133,142,0.12)', border:'1px solid rgba(224,133,142,0.4)', borderRadius:8 }}>
+                    <div style={{ fontSize:13, color:P.pink, fontWeight:600 }}>
+                      ☐ Virement Wise Piers : <strong>€{RENT}</strong> — <span style={{fontWeight:400}}>loyer</span>
+                    </div>
+                    {piersSalaryThisMonth === null || piersSalaryThisMonth === 0 ? (
+                      <div style={{ fontSize:12, color:P.muted, marginTop:4 }}>
+                        ⚠ Piers n'a pas encore été payé ce mois-ci — tu couvres le loyer seule. Ce montant se mettra à jour automatiquement dès que Piers ajoute son salaire.
+                      </div>
+                    ) : (
+                      <div style={{ fontSize:12, color:P.green, marginTop:4 }}>
+                        ✅ Piers a été payé ce mois-ci (€{Math.round(piersSalaryThisMonth).toLocaleString()}) — le loyer est couvert.
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <button onClick={()=>{localStorage.setItem(`cv_eom_dismissed_${currentMonthStr}`,'1');setEomDismissed(true)}}
                   style={{ ...S.btn, background:P.blue, padding:'10px 22px', fontSize:13 }}>✅ Mois clôturé</button>

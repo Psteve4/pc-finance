@@ -81,6 +81,21 @@ const TIPS = {
 
 const TODAY_MONTH = format(new Date(), 'yyyy-MM')
 
+const TAB_ICONS = {
+  overview: '📊', accounts: '🏦', expenses: '💸', recurring: '🔄', budget: '🥧', wishlist: '⭐', history: '📋'
+}
+
+const TAB_COLORS = {
+  overview: '#4eff91', accounts: '#6DB8BE', expenses: '#ff6b6b', recurring: '#F49306',
+  budget: '#C9B749', wishlist: '#FF8CC8', history: '#6ab4ff'
+}
+
+const POCKET_SLICE_MAP = {
+  pocket_vacances: 'holidays',
+  pocket_tilly: 'tilly',
+  pocket_everyday: 'fun',
+}
+
 // Months from May 2025 to current month (most recent first)
 const MT_SALARY_MONTHS = (() => {
   const months = []
@@ -142,6 +157,17 @@ export default function MoneyTime({ onBack, lang, setLang }) {
     const saved = localStorage.getItem('mt_budget_slices')
     return saved ? JSON.parse(saved) : { savings: 15, fun: 10, tilly: 5, holidays: 5, treats: 5 }
   })
+
+  // Pocket targets (target balance for shared pockets)
+  const [pocketTargets, setPocketTargets] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('mt_pocket_targets') || '{}') } catch { return {} }
+  })
+
+  function updatePocketTarget(id, val) {
+    const next = { ...pocketTargets, [id]: parseFloat(val) || 0 }
+    setPocketTargets(next)
+    localStorage.setItem('mt_pocket_targets', JSON.stringify(next))
+  }
   // Custom pockets metadata (name + color, keyed by pocket_<id>)
   const [customPockets, setCustomPockets] = useState(() => {
     try { return JSON.parse(localStorage.getItem('mt_custom_pockets') || '[]') } catch { return [] }
@@ -694,13 +720,13 @@ export default function MoneyTime({ onBack, lang, setLang }) {
   const S = {
     container: { minHeight: '100vh', background: 'var(--v-bg)', color: 'var(--v-text)', fontFamily: 'var(--font-mono)' },
     nav: { display: 'flex', alignItems: 'center', gap: 0, background: 'rgba(0,0,0,0.3)', borderBottom: '1px solid var(--v-glass-border)', padding: '0 24px' },
-    navBtn: (active) => ({
-      padding: '14px 20px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+    navBtn: (active, tabId) => ({
+      padding: '12px 16px', fontSize: 11, fontWeight: 600, cursor: 'pointer',
       background: active ? 'var(--v-glass)' : 'transparent',
-      color: active ? 'var(--v-accent)' : 'var(--v-muted)',
-      border: 'none', borderBottom: active ? '2px solid var(--v-accent)' : '2px solid transparent',
-      letterSpacing: '0.1em', textTransform: 'uppercase', fontFamily: 'var(--font-mono)',
-      transition: 'all 0.15s'
+      color: active ? (TAB_COLORS[tabId] || 'var(--v-accent)') : 'var(--v-muted)',
+      border: 'none', borderBottom: active ? `2px solid ${TAB_COLORS[tabId] || 'var(--v-accent)'}` : '2px solid transparent',
+      letterSpacing: '0.08em', textTransform: 'uppercase', fontFamily: 'var(--font-mono)',
+      transition: 'all 0.15s', display: 'flex', alignItems: 'center', gap: 5,
     }),
     card: { background: 'var(--v-glass)', border: '1px solid var(--v-glass-border)', borderRadius: 8, padding: 20 },
     label: { fontSize: 10, letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--v-muted)', marginBottom: 6 },
@@ -778,7 +804,8 @@ export default function MoneyTime({ onBack, lang, setLang }) {
       {/* Nav tabs */}
       <div style={S.nav}>
         {['overview', 'accounts', 'expenses', 'recurring', 'budget', 'wishlist', 'history'].map(tab_id => (
-          <button key={tab_id} style={S.navBtn(tab === tab_id)} onClick={() => setTab(tab_id)}>
+          <button key={tab_id} style={S.navBtn(tab === tab_id, tab_id)} onClick={() => setTab(tab_id)}>
+            <span style={{ fontSize: 14 }}>{TAB_ICONS[tab_id]}</span>
             {t[tab_id] || tab_id.toUpperCase()}
           </button>
         ))}
@@ -789,6 +816,22 @@ export default function MoneyTime({ onBack, lang, setLang }) {
         {/* ── OVERVIEW TAB ── */}
         {tab === 'overview' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }} className="page-enter">
+
+            {/* Colour-coded summary strip */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12 }}>
+              {[
+                { emoji: '🟢', label: lang === 'en' ? 'Combined Income' : 'Revenus combinés', val: combinedIncome, color: '#4eff91' },
+                { emoji: '🔴', label: lang === 'en' ? 'Total Spent' : 'Total dépensé', val: totalExpenses, color: '#ff6b6b' },
+                { emoji: '🔵', label: lang === 'en' ? 'Saved' : 'Épargné', val: Math.max(0, combinedIncome - totalExpenses), color: '#6DB8BE' },
+                { emoji: '🟡', label: lang === 'en' ? 'Invested' : 'Investi', val: (balances['wise_vacances'] || 0) + (balances['wise_maison'] || 0), color: '#C9B749' },
+              ].map(({ emoji, label, val, color }) => (
+                <div key={label} style={{ ...S.card, borderTop: `4px solid ${color}`, padding: 14 }}>
+                  <div style={{ fontSize: 9, letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--v-muted)', marginBottom: 4 }}>{emoji} {label}</div>
+                  <div style={{ fontFamily: 'var(--font-vista)', fontSize: 28, color, letterSpacing: '0.03em' }}>€{Math.round(val).toLocaleString()}</div>
+                </div>
+              ))}
+            </div>
+
             {/* Salary timing note */}
             {piersSalary === 0 && new Date().getDate() <= 6 && (
               <div style={{ background: 'rgba(106,180,255,0.08)', border: '1px solid rgba(106,180,255,0.25)', borderRadius: 8, padding: '12px 20px', fontSize: 13, color: 'var(--v-muted)' }}>
@@ -899,12 +942,12 @@ export default function MoneyTime({ onBack, lang, setLang }) {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 16 }}>
               {[
-                { label: t.can_spend, val: `€${Math.round(canSpend).toLocaleString()}`, color: 'var(--v-green)' },
-                { label: t.save_target, val: `€${Math.round(savingsTarget).toLocaleString()}`, color: 'var(--v-accent)' },
-                { label: t.rent, val: `€${RENT_AMOUNT}`, color: 'var(--v-amber)' },
-                { label: lang === 'en' ? 'Total Spent' : 'Total dépensé', val: `€${Math.round(totalExpenses).toLocaleString()}`, color: totalExpenses > canSpend ? 'var(--v-red)' : 'var(--v-text)' },
-              ].map(({ label, val, color }) => (
-                <div key={label} style={S.card}>
+                { label: t.can_spend, val: `€${Math.round(canSpend).toLocaleString()}`, color: '#4eff91',  border: '#4eff91' },
+                { label: t.save_target, val: `€${Math.round(savingsTarget).toLocaleString()}`, color: '#6DB8BE', border: '#6DB8BE' },
+                { label: t.rent, val: `€${RENT_AMOUNT}`, color: '#E0858E', border: '#E0858E' },
+                { label: lang === 'en' ? 'Total Spent' : 'Total dépensé', val: `€${Math.round(totalExpenses).toLocaleString()}`, color: totalExpenses > canSpend ? '#ff6b6b' : 'var(--v-text)', border: '#ff6b6b' },
+              ].map(({ label, val, color, border }) => (
+                <div key={label} style={{ ...S.card, borderTop: `4px solid ${border}` }}>
                   <div style={S.label}>{label}</div>
                   <div style={{ fontFamily: 'var(--font-vista)', fontSize: 26, color, marginTop: 4 }}>{val}</div>
                 </div>
@@ -960,39 +1003,43 @@ export default function MoneyTime({ onBack, lang, setLang }) {
                   <AreaChart data={chartData}>
                     <defs>
                       <linearGradient id="incGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#6ab4ff" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#6ab4ff" stopOpacity={0}/>
+                        <stop offset="5%" stopColor="#00C9FF" stopOpacity={0.45}/>
+                        <stop offset="95%" stopColor="#00C9FF" stopOpacity={0}/>
                       </linearGradient>
                       <linearGradient id="expGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#ff4e4e" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#ff4e4e" stopOpacity={0}/>
+                        <stop offset="5%" stopColor="#ff6b6b" stopOpacity={0.45}/>
+                        <stop offset="95%" stopColor="#ff6b6b" stopOpacity={0}/>
+                      </linearGradient>
+                      <linearGradient id="savGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#4eff91" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#4eff91" stopOpacity={0}/>
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(106,180,255,0.1)" vertical={false}/>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(106,180,255,0.06)" vertical={false}/>
                     <XAxis dataKey="month" tick={{ fill: '#7a9bc4', fontSize: 11, fontFamily: 'Share Tech Mono' }} axisLine={false} tickLine={false}/>
                     <YAxis tick={{ fill: '#7a9bc4', fontSize: 10, fontFamily: 'Share Tech Mono' }} axisLine={false} tickLine={false}/>
                     <Tooltip
-                      contentStyle={{ background: '#1a2744', border: '1px solid rgba(106,180,255,0.3)', borderRadius: 6, fontFamily: 'Share Tech Mono', fontSize: 12 }}
-                      labelStyle={{ color: '#6ab4ff' }}
+                      contentStyle={{ background: '#0d1b33', border: '1px solid rgba(0,201,255,0.3)', borderRadius: 6, fontFamily: 'Share Tech Mono', fontSize: 12 }}
+                      labelStyle={{ color: '#00C9FF' }}
                       formatter={(value, name, props) => {
                         if (name === 'income') {
                           const { piers = 0, canelle = 0 } = props.payload || {}
-                          return [`€${value.toLocaleString()} (Piers €${piers.toLocaleString()} | Canelle €${canelle.toLocaleString()})`, lang === 'en' ? 'Combined Income' : 'Revenus combinés']
+                          return [`€${value.toLocaleString()} (P €${piers.toLocaleString()} | C €${canelle.toLocaleString()})`, lang === 'en' ? 'Combined Income' : 'Revenus combinés']
                         }
                         if (name === 'expenses') return [`€${value.toLocaleString()}`, lang === 'en' ? 'Expenses' : 'Dépenses']
                         if (name === 'savings') return [`€${value.toLocaleString()}`, lang === 'en' ? 'Saved' : 'Épargné']
                         return [value, name]
                       }}
                     />
-                    <Area type="monotone" dataKey="income" stroke="#6ab4ff" fill="url(#incGrad)" strokeWidth={2} name="income"/>
-                    <Area type="monotone" dataKey="expenses" stroke="#ff4e4e" fill="url(#expGrad)" strokeWidth={2} name="expenses"/>
-                    <Area type="monotone" dataKey="savings" stroke="#4eff91" fill="none" strokeWidth={1.5} strokeDasharray="4 4" name="savings"/>
+                    <Area type="monotone" dataKey="income" stroke="#00C9FF" fill="url(#incGrad)" strokeWidth={2.5} name="income"/>
+                    <Area type="monotone" dataKey="expenses" stroke="#ff6b6b" fill="url(#expGrad)" strokeWidth={2} name="expenses"/>
+                    <Area type="monotone" dataKey="savings" stroke="#4eff91" fill="url(#savGrad)" strokeWidth={2} name="savings"/>
                   </AreaChart>
                 </ResponsiveContainer>
                 <div style={{ display: 'flex', gap: 20, justifyContent: 'center', marginTop: 8 }}>
-                  {[['#6ab4ff', lang === 'en' ? 'Combined Income' : 'Revenus combinés'], ['#ff4e4e', lang === 'en' ? 'Expenses' : 'Dépenses'], ['#4eff91', lang === 'en' ? 'Saved' : 'Épargné']].map(([c, l]) => (
+                  {[['#00C9FF', lang === 'en' ? 'Combined Income' : 'Revenus combinés'], ['#ff6b6b', lang === 'en' ? 'Expenses' : 'Dépenses'], ['#4eff91', lang === 'en' ? 'Saved' : 'Épargné']].map(([c, l]) => (
                     <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--v-muted)' }}>
-                      <div style={{ width: 12, height: 2, background: c }}/>
+                      <div style={{ width: 12, height: 3, background: c, borderRadius: 1 }}/>
                       {l}
                     </div>
                   ))}
@@ -1011,14 +1058,39 @@ export default function MoneyTime({ onBack, lang, setLang }) {
 
         {/* ── ACCOUNTS TAB ── */}
         {tab === 'accounts' && (
-          <div className="page-enter">
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+          <div className="page-enter" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <button style={S.btn} onClick={openBalanceModal}>{t.update_all}</button>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
-              {ACCOUNTS.map(acc => (
-                <AccountCard key={acc.id} acc={acc} balance={balances[acc.id] || 0} onUpdate={updateBalance} S={S} t={t} lang={lang}/>
-              ))}
+
+            {/* Section 1 — Our Accounts */}
+            <div>
+              <div style={{ ...S.label, marginBottom: 12, fontSize: 11, color: '#6ab4ff' }}>🏦 {lang === 'en' ? 'Our Accounts' : 'Nos comptes'}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+                {ACCOUNTS.filter(a => a.type !== 'pocket').map(acc => (
+                  <AccountCard key={acc.id} acc={acc} balance={balances[acc.id] || 0} onUpdate={updateBalance} S={S} t={t} lang={lang}/>
+                ))}
+              </div>
+            </div>
+
+            {/* Section 2 — Shared Pockets */}
+            <div>
+              <div style={{ ...S.label, marginBottom: 12, fontSize: 11, color: '#6DB8BE' }}>💰 {lang === 'en' ? 'Shared Pockets (Wise)' : 'Poches partagées (Wise)'}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
+                {ACCOUNTS.filter(a => a.type === 'pocket').map(acc => (
+                  <PocketCard
+                    key={acc.id}
+                    acc={acc}
+                    balance={balances[acc.id] || 0}
+                    onUpdate={updateBalance}
+                    contribution={combinedIncome > 0 ? Math.round(combinedIncome * (budgetSlices[POCKET_SLICE_MAP[acc.id]] || 0) / 100) : 0}
+                    target={pocketTargets[acc.id] || 0}
+                    onTargetChange={(val) => updatePocketTarget(acc.id, val)}
+                    S={S}
+                    lang={lang}
+                  />
+                ))}
+              </div>
             </div>
           </div>
         )}
@@ -1734,39 +1806,112 @@ function AccountCard({ acc, balance, onUpdate, S, t, lang }) {
 
   useEffect(() => { setVal(balance.toString()) }, [balance])
 
-  const isWise = acc.type === 'wise'
+  const ownerLabel = acc.owner === 'piers' ? 'PIERS' : acc.owner === 'canelle' ? 'CANELLE' : 'SHARED'
 
   return (
-    <div style={{ ...S.card, borderColor: isWise ? 'rgba(0,185,255,0.3)' : 'var(--v-glass-border)' }}>
+    <div style={{ ...S.card, borderTop: `4px solid ${acc.color}`, borderColor: `${acc.color}33` }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
         <div>
-          <div style={{ fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--v-muted)' }}>
-            {acc.owner === 'piers' ? 'PIERS' : 'CANELLE'} · {acc.type.toUpperCase()}
+          <div style={{ fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', color: acc.color, opacity: 0.8 }}>
+            {ownerLabel} · {acc.type.toUpperCase()}
           </div>
           <div style={{ fontSize: 15, color: 'var(--v-text)', marginTop: 4, fontWeight: 600 }}>{acc.name}</div>
         </div>
-        <div style={{ width: 8, height: 8, borderRadius: '50%', background: acc.color, marginTop: 4 }}/>
+        <div style={{ width: 10, height: 10, borderRadius: '50%', background: acc.color, marginTop: 4, boxShadow: `0 0 8px ${acc.color}66` }}/>
       </div>
 
-      <div style={{ fontFamily: 'var(--font-vista)', fontSize: 32, color: balance >= 0 ? 'var(--v-green)' : 'var(--v-red)', marginBottom: 16 }}>
+      <div style={{ fontFamily: 'var(--font-vista)', fontSize: 32, color: acc.color, marginBottom: 16, textShadow: `0 0 20px ${acc.color}44` }}>
         €{Math.round(balance).toLocaleString()}
       </div>
-
-      {isWise && (
-        <div style={{ fontSize: 11, color: 'rgba(0,185,255,0.5)', marginBottom: 12 }}>
-          {lang === 'en' ? '⚡ Connect Wise API for live balance' : "⚡ Connectez l'API Wise pour solde en temps réel"}
-        </div>
-      )}
 
       {editing ? (
         <div style={{ display: 'flex', gap: 8 }}>
           <input style={S.input} type="number" value={val} onChange={e => setVal(e.target.value)} autoFocus/>
-          <button style={S.btn} onClick={() => { onUpdate(acc.id, val); setEditing(false) }}>✓</button>
+          <button style={{ ...S.btn, borderColor: `${acc.color}66`, color: acc.color }} onClick={() => { onUpdate(acc.id, val); setEditing(false) }}>✓</button>
           <button style={{ ...S.btn, color: 'var(--v-muted)' }} onClick={() => setEditing(false)}>✕</button>
         </div>
       ) : (
-        <button style={{ ...S.btn, width: '100%' }} onClick={() => setEditing(true)}>{t.update_balance}</button>
+        <button style={{ ...S.btn, width: '100%', borderColor: `${acc.color}44`, color: acc.color }} onClick={() => setEditing(true)}>{t.update_balance}</button>
       )}
+    </div>
+  )
+}
+
+function PocketCard({ acc, balance, onUpdate, contribution, target, onTargetChange, S, lang }) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal] = useState(balance.toString())
+  const [editingTarget, setEditingTarget] = useState(false)
+  const [targetVal, setTargetVal] = useState(target > 0 ? target.toString() : '')
+
+  useEffect(() => { setVal(balance.toString()) }, [balance])
+  useEffect(() => { setTargetVal(target > 0 ? target.toString() : '') }, [target])
+
+  const pct = target > 0 ? Math.min(100, (balance / target) * 100) : 0
+
+  return (
+    <div style={{ ...S.card, borderTop: `4px solid ${acc.color}`, borderColor: `${acc.color}33` }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+        <div>
+          <div style={{ fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', color: acc.color, opacity: 0.8, marginBottom: 4 }}>
+            SHARED · POCKET
+          </div>
+          <div style={{ fontSize: 15, color: 'var(--v-text)', fontWeight: 600 }}>{acc.name}</div>
+        </div>
+        <div style={{ width: 10, height: 10, borderRadius: '50%', background: acc.color, boxShadow: `0 0 8px ${acc.color}66` }}/>
+      </div>
+
+      {/* Balance */}
+      {editing ? (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <input style={S.input} type="number" value={val} onChange={e => setVal(e.target.value)} autoFocus/>
+          <button style={{ ...S.btn, borderColor: `${acc.color}66`, color: acc.color }} onClick={() => { onUpdate(acc.id, val); setEditing(false) }}>✓</button>
+          <button style={{ ...S.btn, color: 'var(--v-muted)' }} onClick={() => setEditing(false)}>✕</button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 12 }}>
+          <div style={{ fontFamily: 'var(--font-vista)', fontSize: 32, color: acc.color, textShadow: `0 0 20px ${acc.color}44` }}>
+            €{Math.round(balance).toLocaleString()}
+          </div>
+          <button onClick={() => setEditing(true)} style={{ background: 'none', border: 'none', fontSize: 13, cursor: 'pointer', color: 'var(--v-muted)' }}>✏️</button>
+        </div>
+      )}
+
+      {/* Progress bar */}
+      {target > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--v-muted)', marginBottom: 4 }}>
+            <span>{Math.round(pct)}% {lang === 'en' ? 'of target' : 'de l\'objectif'}</span>
+            <span>€{Math.round(target).toLocaleString()}</span>
+          </div>
+          <div style={{ height: 6, background: 'rgba(0,0,0,0.4)', borderRadius: 3, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${pct}%`, background: acc.color, borderRadius: 3, transition: 'width 0.5s ease', boxShadow: `0 0 6px ${acc.color}88` }}/>
+          </div>
+        </div>
+      )}
+
+      {/* Monthly contribution */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 10 }}>
+        <span style={{ color: 'var(--v-muted)' }}>📅 {lang === 'en' ? 'Monthly contribution' : 'Contribution mensuelle'}</span>
+        <span style={{ color: acc.color, fontWeight: 600 }}>+€{contribution.toLocaleString()}</span>
+      </div>
+
+      {/* Target */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ fontSize: 11, color: 'var(--v-muted)' }}>🎯 {lang === 'en' ? 'Target' : 'Objectif'}</span>
+        {editingTarget ? (
+          <>
+            <input type="number" style={{ ...S.input, width: 100, fontSize: 12 }} value={targetVal} onChange={e => setTargetVal(e.target.value)} autoFocus
+              onKeyDown={e => { if (e.key === 'Enter') { onTargetChange(targetVal); setEditingTarget(false) } if (e.key === 'Escape') setEditingTarget(false) }}
+            />
+            <button onClick={() => { onTargetChange(targetVal); setEditingTarget(false) }} style={{ ...S.btn, padding: '4px 10px', fontSize: 11 }}>✓</button>
+            <button onClick={() => setEditingTarget(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--v-muted)', fontSize: 12 }}>✕</button>
+          </>
+        ) : (
+          <button onClick={() => setEditingTarget(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: target > 0 ? acc.color : 'var(--v-muted)', fontSize: 12, fontFamily: 'var(--font-mono)', textDecoration: 'underline' }}>
+            {target > 0 ? `€${Math.round(target).toLocaleString()}` : (lang === 'en' ? 'Set target' : 'Définir objectif')}
+          </button>
+        )}
+      </div>
     </div>
   )
 }

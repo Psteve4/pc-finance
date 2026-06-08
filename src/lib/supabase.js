@@ -13,12 +13,16 @@ export const URSSAF_RATES = {
 }
 
 export const ACCOUNTS = [
-  { id: 'wise_piers',    name: 'Wise – Piers',    owner: 'piers',   type: 'wise',    color: '#00B9FF' },
-  { id: 'wise_canelle',  name: 'Wise – Canelle',  owner: 'canelle', type: 'wise',    color: '#00B9FF' },
-  { id: 'mono_piers',    name: 'Monobanque – Piers',    owner: 'piers',   type: 'manual',  color: '#FFD700' },
-  { id: 'mono_canelle',  name: 'Monobanque – Canelle (receives client payments)', owner: 'canelle', type: 'manual', color: '#FFD700' },
-  { id: 'laposte',       name: 'La Poste – Canelle',    owner: 'canelle', type: 'manual',  color: '#F7A600' },
-  { id: 'wise_assets',   name: 'Wise Assets – MSCI World', owner: 'piers', type: 'investment', color: '#4eff91' },
+  { id: 'wise_piers',      name: 'Wise – Piers',      owner: 'piers',   type: 'wise',       color: '#00B9FF' },
+  { id: 'wise_canelle',    name: 'Wise – Canelle',    owner: 'canelle', type: 'wise',       color: '#E0858E' },
+  { id: 'mono_piers',      name: 'Monobanque – Piers',      owner: 'piers',   type: 'manual',     color: '#F49306' },
+  { id: 'mono_canelle',    name: 'Monobanque – Canelle (receives client payments)', owner: 'canelle', type: 'manual', color: '#A5BB1A' },
+  { id: 'laposte',         name: 'La Poste – Canelle',      owner: 'canelle', type: 'manual',     color: '#C9B749' },
+  { id: 'wise_vacances',   name: 'Wise – Vacances',   owner: 'shared',  type: 'investment', color: '#6DB8BE' },
+  { id: 'wise_maison',     name: 'Wise – Maison',     owner: 'shared',  type: 'investment', color: '#C9B749' },
+  { id: 'pocket_vacances', name: '🏖️ Pocket Vacances', owner: 'shared', type: 'pocket',     color: '#6DB8BE' },
+  { id: 'pocket_tilly',    name: '🐾 Pocket Tilly',    owner: 'shared', type: 'pocket',     color: '#A5BB1A' },
+  { id: 'pocket_everyday', name: '🏠 Pocket Everyday', owner: 'shared', type: 'pocket',     color: '#F49306' },
 ]
 
 export const EXPENSE_CATEGORIES = [
